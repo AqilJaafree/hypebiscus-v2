@@ -797,49 +797,55 @@ const ChatBox: React.FC = () => {
             Your smart assistant for exploring BTC liquidity in the Solana DeFi ecosystem.
           </p>
           
-          <div className="grid grid-cols-1 max-w-2xl gap-3 mb-6 w-full">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0">
-                <Clock className="text-primary" size={18} />
+          <div className="flex justify-center w-full mb-8">
+            <div className="grid grid-cols-1 gap-3 w-full max-w-xl">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <Clock className="text-primary" size={18} />
+                </div>
+                <p className="text-white text-xs md:text-sm break-words">
+                  Find the best places to earn with your Bitcoin - updated live.
+                </p>
               </div>
-              <p className="text-white text-xs md:text-sm break-words">
-                Real-time discovery of BTC and zBTC liquidity pools on Solana.
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0">
-                <Plus className="text-primary" size={18} />
+              
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <Plus className="text-primary" size={18} />
+                </div>
+                <p className="text-white text-xs md:text-sm break-words">
+                  Start earning with one click - no complicated steps.
+                </p>
               </div>
-              <p className="text-white text-xs md:text-sm break-words">
-                Instant &apos;Add Position&apos; capability.
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0">
-                <ChartLine className="text-primary" size={18} />
+              
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <ChartLine className="text-primary" size={18} />
+                </div>
+                <p className="text-white text-xs md:text-sm break-words">
+                  See exactly how much you can earn and how safe each option is.
+                </p>
               </div>
-              <p className="text-white text-xs md:text-sm break-words">
-                Live pool analytics, including TVL, APR, and recent liquidity changes.
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0">
-                <Wallet className="text-primary" size={18} />
+              
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <Wallet className="text-primary" size={18} />
+                </div>
+                <p className="text-white text-xs md:text-sm break-words">
+                  You keep full control of your Bitcoin - we never hold your funds.
+                </p>
               </div>
-              <p className="text-white text-xs md:text-sm break-words">
-                Secure, non-custodial wallet integration for direct on-chain transactions.
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0">
-                <Shuffle className="text-primary" size={18} />
+              
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <Shuffle className="text-primary" size={18} />
+                </div>
+                <p className="text-white text-xs md:text-sm break-words">
+                  Swap any Solana token instantly - built right in.
+                </p>
               </div>
-              <p className="text-white text-xs md:text-sm break-words">
-                Integrated Jupiter Plugin for seamless token swaps across all Solana DEXes.
-              </p>
             </div>
           </div>
-          
+                    
           {/* Portfolio Style Selection - Only this button */}
           <Button
             variant="outline"
@@ -848,7 +854,7 @@ const ChatBox: React.FC = () => {
             onClick={() => setIsPortfolioStyleModalOpen(true)}
           >
             <ChartLine size={18} />
-            <span>Select Portfolio Style</span>
+            <span>Find Your Perfect Pool</span>
           </Button>
         </div>
 
