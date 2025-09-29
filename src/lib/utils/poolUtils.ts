@@ -18,6 +18,7 @@ export interface FormattedPool {
   currentPrice: string;
   apy: string;
   fees24h: string;
+  apr: string;  // ✅ ADDED
   volume24h: string;
   binStep: string;
   estimatedDailyEarnings: string;
@@ -75,6 +76,14 @@ export function calculateFeeAPY(fees24h: number, tvl: number): number {
 }
 
 /**
+ * Calculate APR (Annual Percentage Rate) from 24h fees and TVL
+ */
+export function calculateFeeAPR(fees24h: number, tvl: number): number {
+  if (tvl <= 0) return 0;
+  return (fees24h / tvl) * 365 * 100;
+}
+
+/**
  * Format a single pool with all necessary calculations
  */
 export function formatPool(
@@ -85,6 +94,7 @@ export function formatPool(
   const fees24h = typeof apiPool.fees_24h === 'number' ? apiPool.fees_24h : 0;
   const liquidityValue = parseFloat(apiPool.liquidity);
   const feeAPY = calculateFeeAPY(fees24h, liquidityValue);
+  const feeAPR = calculateFeeAPR(fees24h, liquidityValue);  // ✅ ADDED
   const binStep = apiPool.bin_step?.toString() || 'N/A';
   
   // Calculate estimated daily earnings
@@ -98,6 +108,7 @@ export function formatPool(
     currentPrice: formatCurrencyValue(apiPool.current_price, 2),
     apy: feeAPY.toFixed(2) + '%',
     fees24h: formatCurrencyValue(fees24h, 2),
+    apr: feeAPR.toFixed(2) + '%',  // ✅ ADDED
     volume24h: formatCurrencyValue(apiPool.trade_volume_24h, 0),
     binStep,
     estimatedDailyEarnings: estimatedDailyEarnings.toFixed(2),

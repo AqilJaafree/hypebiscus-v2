@@ -108,8 +108,8 @@ const BtcPoolsList: React.FC<BtcPoolsListProps> = ({
             <div className="flex justify-between lg:items-center items-start">
               <h4 className="text-white font-bold text-lg">{pool.name}</h4>
               <div className="flex flex-col items-end">
-                <span className="text-2xl font-bold">{pool.apy} </span>
-                <span className="text-sm text-white">24hr fee / TVL</span>
+                <span className="text-2xl font-bold">{pool.apr}</span>
+                <span className="text-sm text-white">APR</span>
               </div>
             </div>
 
