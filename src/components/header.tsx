@@ -1,3 +1,4 @@
+// src/components/header.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -18,6 +19,7 @@ import {
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import Image from "next/image";
+import LPStatusBadge from "@/components/LPStatusBadge";
 
 // Dynamically import WalletMultiButton with ssr disabled
 const WalletMultiButton = dynamic(
@@ -27,10 +29,8 @@ const WalletMultiButton = dynamic(
 );
 
 const Header = () => {
-  // State to handle component mounting to avoid hydration issues
   const [mounted, setMounted] = useState(false);
 
-  // Update mounted state after component mounts
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -48,7 +48,11 @@ const Header = () => {
         />
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 md:gap-4">
+        {/* LP Status Badge */}
+        {mounted && <LPStatusBadge />}
+
+        {/* Mobile Navigation Menu */}
         <NavigationMenu className="lg:hidden block">
           <NavigationMenuList>
             <NavigationMenuItem>
@@ -61,6 +65,13 @@ const Header = () => {
                     <NavigationMenuLink asChild>
                       <Link href="/">
                         <HouseIcon className="text-primary" /> Home
+                      </Link>
+                    </NavigationMenuLink>
+                  </li>
+                  <li>
+                    <NavigationMenuLink asChild>
+                      <Link href="/premium">
+                        <span className="text-primary text-xl">🤖</span> Premium
                       </Link>
                     </NavigationMenuLink>
                   </li>
@@ -83,6 +94,8 @@ const Header = () => {
             </NavigationMenuItem>
           </NavigationMenuList>
         </NavigationMenu>
+
+        {/* Wallet Connect Button */}
         {mounted && (
           <WalletMultiButton
             style={{
