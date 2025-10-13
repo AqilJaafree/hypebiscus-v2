@@ -3,6 +3,15 @@
 import PageTemplate from "@/components/PageTemplate";
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, TrendingDown, TrendingUp, Activity, DollarSign, BarChart3, Zap, RefreshCw, Target, Cpu, Users, ArrowUpRight, ArrowDownRight, TrendingUpDown } from 'lucide-react';
+import { useMagicblockWebSocket } from '@/hooks/useMagicblockWebSocket';
+import WhaleMonitor from '@/components/premium-components/WhaleMonitor';
+
+// Bitcoin feed configuration
+const BITCOIN_FEED = {
+  pyth_lazer_id: 'btc-usd',
+  name: 'Bitcoin',
+  symbol: 'BTC'
+};
 
 // RSI Calculation (Wilder's method)
 const calculateRSI = (prices: number[], period = 14): number | null => {
@@ -68,7 +77,6 @@ const calculateMACD = (prices: number[]): { macd: number | null; signal: number 
   
   const macd = ema12 - ema26;
   
-  // Calculate signal line (9-period EMA of MACD)
   const macdLine: number[] = [];
   for (let i = 26; i <= prices.length; i++) {
     const slice = prices.slice(0, i);
@@ -110,6 +118,9 @@ type TrendDirection = 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
 type MACDSignal = 'BULLISH_CROSSOVER' | 'BEARISH_CROSSOVER' | 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 
 const PremiumPage = () => {
+  // Magicblock Pyth integration
+  const { price: realtimePrice, isConnected, updateCount, error: pythError } = useMagicblockWebSocket(BITCOIN_FEED);
+  
   const [btcData, setBtcData] = useState<BTCData | null>(null);
   const [historicalPrices, setHistoricalPrices] = useState<number[]>([]);
   const [rsi, setRsi] = useState<number | null>(null);
@@ -129,9 +140,38 @@ const PremiumPage = () => {
   const [macdSignal, setMacdSignal] = useState<MACDSignal>('NEUTRAL');
   const [error, setError] = useState<string | null>(null);
 
+  // Update price when realtime price changes
+  useEffect(() => {
+    if (realtimePrice && btcData) {
+      // Convert from raw integer to actual price (assuming 8 decimals for BTC)
+      const formattedPrice = realtimePrice / Math.pow(10, 8);
+      
+      setBtcData(prev => {
+        if (!prev) return prev;
+        
+        const change24hAmount = formattedPrice - prev.price;
+        const change24h = (change24hAmount / prev.price) * 100;
+        
+        return {
+          ...prev,
+          price: formattedPrice,
+          change24hAmount,
+          change24h
+        };
+      });
+
+      // Add to historical prices for technical analysis
+      setHistoricalPrices(prev => {
+        const newPrices = [...prev, formattedPrice];
+        // Keep last 60 prices for calculations
+        return newPrices.slice(-60);
+      });
+    }
+  }, [realtimePrice, updateCount]);
+
   useEffect(() => {
     fetchBTCData();
-    const interval = setInterval(fetchBTCData, 60000);
+    const interval = setInterval(fetchBTCData, 300000); // Fetch every 5 minutes for backup data
     return () => clearInterval(interval);
   }, []);
 
@@ -177,11 +217,9 @@ const PremiumPage = () => {
       
       setHistoricalPrices(prices);
       
-      // Calculate RSI
-      const currentRSI = calculateRSI(prices);
-      setRsi(currentRSI);
+      const calculatedRSI = calculateRSI(prices, 14);
+      setRsi(calculatedRSI);
       
-      // Calculate Moving Averages
       const sma20 = calculateSMA(prices, 20);
       const sma50 = calculateSMA(prices, 50);
       const ema12 = calculateEMA(prices, 12);
@@ -198,111 +236,93 @@ const PremiumPage = () => {
         macdHistogram: macdData.histogram
       });
       
-      // Calculate market sentiment
-      const sentiment = calculateMarketSentiment(currentRSI, priceChange24h);
-      setMarketSentiment(sentiment);
+      if (calculatedRSI !== null) {
+        if (calculatedRSI <= 30) setMarketSentiment('EXTREME_FEAR');
+        else if (calculatedRSI <= 40) setMarketSentiment('FEAR');
+        else if (calculatedRSI <= 60) setMarketSentiment('NEUTRAL');
+        else if (calculatedRSI <= 70) setMarketSentiment('GREED');
+        else setMarketSentiment('EXTREME_GREED');
+      }
       
-      // Determine trend direction (enhanced with MA)
-      const trend = calculateTrendDirection(priceChange24h, currentRSI, currentPrice, sma20, sma50);
-      setTrendDirection(trend);
+      if (sma20 && sma50) {
+        if (sma20 > sma50 * 1.02) setTrendDirection('BULLISH');
+        else if (sma20 < sma50 * 0.98) setTrendDirection('BEARISH');
+        else setTrendDirection('SIDEWAYS');
+      }
       
-      // Determine MACD signal
-      const macdSig = determineMACDSignal(macdData.macd, macdData.signal, macdData.histogram);
-      setMacdSignal(macdSig);
+      if (macdData.macd && macdData.signal && macdData.histogram) {
+        const prevHistogram = macdData.histogram - 100;
+        
+        if (macdData.histogram > 0 && prevHistogram <= 0) {
+          setMacdSignal('BULLISH_CROSSOVER');
+        } else if (macdData.histogram < 0 && prevHistogram >= 0) {
+          setMacdSignal('BEARISH_CROSSOVER');
+        } else if (macdData.histogram > 0) {
+          setMacdSignal('BULLISH');
+        } else if (macdData.histogram < 0) {
+          setMacdSignal('BEARISH');
+        } else {
+          setMacdSignal('NEUTRAL');
+        }
+      }
       
       setBtcData({
         price: currentPrice,
         change24h: priceChange24h,
         change24hAmount: priceChange24hAmount,
-        volume24h: volume24h,
-        high24h: high24h,
-        low24h: low24h,
-        marketCap: marketCap,
-        circulatingSupply: circulatingSupply,
-        maxSupply: maxSupply,
+        volume24h,
+        high24h,
+        low24h,
+        marketCap,
+        circulatingSupply,
+        maxSupply
       });
       
       setLastUpdate(new Date());
       setLoading(false);
-    } catch (error) {
-      console.error('Error fetching BTC data:', error);
-      setError('Failed to load market data. Please try again.');
+    } catch (err) {
+      console.error('Error fetching BTC data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch Bitcoin data');
       setLoading(false);
     }
   };
 
-  const calculateMarketSentiment = (rsi: number | null, priceChange: number): MarketSentiment => {
-    if (!rsi) return 'NEUTRAL';
-    
-    if (rsi >= 75 && priceChange > 5) return 'EXTREME_GREED';
-    if (rsi >= 65 && priceChange > 2) return 'GREED';
-    if (rsi <= 25 && priceChange < -5) return 'EXTREME_FEAR';
-    if (rsi <= 35 && priceChange < -2) return 'FEAR';
-    return 'NEUTRAL';
+  const getRSIStatus = (rsi: number): { status: string; color: string; description: string } => {
+    if (rsi <= 30) return { 
+      status: 'OVERSOLD', 
+      color: 'text-green-500', 
+      description: 'Strong buying opportunity - historically undervalued' 
+    };
+    if (rsi <= 40) return { 
+      status: 'APPROACHING OVERSOLD', 
+      color: 'text-green-400', 
+      description: 'Potential accumulation zone' 
+    };
+    if (rsi <= 60) return { 
+      status: 'NEUTRAL', 
+      color: 'text-gray-400', 
+      description: 'Market in equilibrium - no extreme signals' 
+    };
+    if (rsi <= 70) return { 
+      status: 'APPROACHING OVERBOUGHT', 
+      color: 'text-orange-400', 
+      description: 'Consider taking profits or securing gains' 
+    };
+    return { 
+      status: 'OVERBOUGHT', 
+      color: 'text-red-500', 
+      description: 'High risk of correction - exercise caution' 
+    };
   };
 
-  const calculateTrendDirection = (
-    priceChange: number, 
-    rsi: number | null, 
-    currentPrice: number, 
-    sma20: number | null, 
-    sma50: number | null
-  ): TrendDirection => {
-    if (!rsi) return 'SIDEWAYS';
-    
-    // Enhanced with MA crossover logic
-    const aboveSMA20 = sma20 ? currentPrice > sma20 : null;
-    const aboveSMA50 = sma50 ? currentPrice > sma50 : null;
-    const goldenCross = sma20 && sma50 ? sma20 > sma50 : null;
-    
-    if (priceChange > 3 && rsi > 50 && aboveSMA20 && goldenCross) return 'BULLISH';
-    if (priceChange < -3 && rsi < 50 && !aboveSMA20 && !goldenCross) return 'BEARISH';
-    return 'SIDEWAYS';
-  };
-
-  const determineMACDSignal = (
-    macd: number | null, 
-    signal: number | null, 
-    histogram: number | null
-  ): MACDSignal => {
-    if (!macd || !signal || !histogram) return 'NEUTRAL';
-    
-    if (histogram > 0 && Math.abs(histogram) > 100) return 'BULLISH_CROSSOVER';
-    if (histogram < 0 && Math.abs(histogram) > 100) return 'BEARISH_CROSSOVER';
-    if (histogram > 0) return 'BULLISH';
-    if (histogram < 0) return 'BEARISH';
-    return 'NEUTRAL';
-  };
-
-  const getSentimentColor = (sentiment: MarketSentiment) => {
-    switch(sentiment) {
-      case 'EXTREME_GREED': return 'text-green-400 bg-green-500/20 border-green-500';
-      case 'GREED': return 'text-green-500 bg-green-500/10 border-green-500/50';
-      case 'EXTREME_FEAR': return 'text-red-400 bg-red-500/20 border-red-500';
-      case 'FEAR': return 'text-red-500 bg-red-500/10 border-red-500/50';
-      default: return 'text-blue-400 bg-blue-500/10 border-blue-500/50';
+  const getMACDColor = (signal: MACDSignal): string => {
+    switch (signal) {
+      case 'BULLISH_CROSSOVER': return 'text-green-500';
+      case 'BULLISH': return 'text-green-400';
+      case 'BEARISH_CROSSOVER': return 'text-red-500';
+      case 'BEARISH': return 'text-red-400';
+      default: return 'text-gray-400';
     }
-  };
-
-  const getTrendColor = (trend: TrendDirection) => {
-    switch(trend) {
-      case 'BULLISH': return 'text-green-500';
-      case 'BEARISH': return 'text-red-500';
-      default: return 'text-yellow-500';
-    }
-  };
-
-  const getMACDColor = (signal: MACDSignal) => {
-    if (signal.includes('BULLISH')) return 'text-green-500';
-    if (signal.includes('BEARISH')) return 'text-red-500';
-    return 'text-gray-400';
-  };
-
-  const getRSIStatus = (rsiValue: number) => {
-    if (rsiValue >= 70) return { label: 'Overbought', color: 'text-red-500', emoji: '🔴' };
-    if (rsiValue <= 30) return { label: 'Oversold', color: 'text-green-500', emoji: '🟢' };
-    if (rsiValue >= 50) return { label: 'Bullish', color: 'text-green-400', emoji: '🟢' };
-    return { label: 'Bearish', color: 'text-red-400', emoji: '🔴' };
   };
 
   if (loading) {
@@ -318,7 +338,7 @@ const PremiumPage = () => {
     );
   }
 
-  if (error) {
+  if (error && !pythError) {
     return (
       <PageTemplate>
         <div className="w-full text-white flex items-center justify-center py-20">
@@ -357,315 +377,281 @@ const PremiumPage = () => {
                 disabled={loading}
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                <span className="hidden md:inline">Refresh</span>
+                <span className="text-sm">Refresh</span>
               </button>
             </div>
-            <p className="text-[#A0A0A0] text-sm mb-1">
-              Advanced technical analysis with Moving Averages and MACD powered by real-time data
-            </p>
-            <div className="flex items-center gap-3 text-xs text-[#A0A0A0]">
+            <div className="flex items-center gap-2 text-sm text-[#A0A0A0]">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></div>
+                <span>{isConnected ? 'Live Feed Active' : 'Reconnecting...'}</span>
+              </div>
+              <span>•</span>
               <span>Last updated: {lastUpdate.toLocaleTimeString()}</span>
-              <span>•</span>
-              <span>Data: DeFiDive API</span>
-              <span>•</span>
-              <span className="flex items-center gap-1">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                Live
-              </span>
-            </div>
-          </div>
-
-          {/* Market Overview Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            {/* Market Sentiment */}
-            <div className={`p-6 rounded-2xl border ${getSentimentColor(marketSentiment)}`}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  <h3 className="text-sm font-medium">Market Sentiment</h3>
-                </div>
-                <span className="text-2xl">{marketSentiment === 'EXTREME_GREED' ? '🤑' : marketSentiment === 'GREED' ? '😊' : marketSentiment === 'EXTREME_FEAR' ? '😱' : marketSentiment === 'FEAR' ? '😟' : '😐'}</span>
-              </div>
-              <p className="text-2xl font-bold mb-1">
-                {marketSentiment.replace('_', ' ')}
-              </p>
-              <p className="text-xs opacity-80">
-                Based on RSI and price momentum
-              </p>
-            </div>
-
-            {/* Trend Direction */}
-            <div className="bg-[#161616] border border-[#1C1C1C] rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-2">
-                <Target className="w-5 h-5 text-[#FF4040]" />
-                <h3 className="text-sm text-[#A0A0A0]">Trend Direction</h3>
-              </div>
-              <div className="flex items-center gap-2 mb-1">
-                <p className={`text-2xl font-bold ${getTrendColor(trendDirection)}`}>
-                  {trendDirection}
-                </p>
-                {trendDirection === 'BULLISH' && <ArrowUpRight className="w-6 h-6 text-green-500" />}
-                {trendDirection === 'BEARISH' && <ArrowDownRight className="w-6 h-6 text-red-500" />}
-              </div>
-              <p className="text-xs text-[#A0A0A0]">
-                {trendDirection === 'BULLISH' && 'Strong upward momentum'}
-                {trendDirection === 'BEARISH' && 'Downward pressure'}
-                {trendDirection === 'SIDEWAYS' && 'Consolidation phase'}
-              </p>
-            </div>
-
-            {/* MACD Signal */}
-            <div className="bg-[#161616] border border-[#1C1C1C] rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-2">
-                <TrendingUpDown className="w-5 h-5 text-[#FF4040]" />
-                <h3 className="text-sm text-[#A0A0A0]">MACD Signal</h3>
-              </div>
-              <p className={`text-xl font-bold mb-1 ${getMACDColor(macdSignal)}`}>
-                {macdSignal.replace('_', ' ')}
-              </p>
-              <p className="text-xs text-[#A0A0A0]">
-                {movingAverages.macdHistogram !== null && `Histogram: ${movingAverages.macdHistogram.toFixed(0)}`}
-              </p>
-            </div>
-          </div>
-
-          {/* Key Metrics Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            {/* Current Price */}
-            <div className="bg-[#161616] border border-[#1C1C1C] rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-2">
-                <DollarSign className="w-5 h-5 text-[#FF4040]" />
-                <h3 className="text-sm text-[#A0A0A0]">Price</h3>
-              </div>
-              <p className="text-3xl font-bold mb-1">
-                ${btcData?.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-              <div className="flex items-center gap-1">
-                {btcData && btcData.change24h >= 0 ? (
-                  <TrendingUp className="w-4 h-4 text-green-500" />
-                ) : (
-                  <TrendingDown className="w-4 h-4 text-red-500" />
-                )}
-                <span className={btcData && btcData.change24h >= 0 ? 'text-green-500' : 'text-red-500'}>
-                  {btcData && btcData.change24h >= 0 ? '+' : ''}{btcData?.change24h.toFixed(2)}%
-                </span>
-              </div>
-            </div>
-
-            {/* RSI */}
-            <div className="bg-[#161616] border border-[#1C1C1C] rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-2">
-                <Activity className="w-5 h-5 text-[#FF4040]" />
-                <h3 className="text-sm text-[#A0A0A0]">RSI (14)</h3>
-              </div>
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-3xl font-bold">
-                  {rsi ? rsi.toFixed(1) : 'N/A'}
-                </p>
-                {rsiStatus && <span className="text-xl">{rsiStatus.emoji}</span>}
-              </div>
-              {rsiStatus && (
-                <p className={`text-sm font-medium ${rsiStatus.color}`}>
-                  {rsiStatus.label}
-                </p>
+              {updateCount > 0 && (
+                <>
+                  <span>•</span>
+                  <span className="text-[#FF4040]">{updateCount} live updates</span>
+                </>
               )}
             </div>
+          </div>
 
-            {/* Volume */}
-            <div className="bg-[#161616] border border-[#1C1C1C] rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-2">
-                <BarChart3 className="w-5 h-5 text-[#FF4040]" />
-                <h3 className="text-sm text-[#A0A0A0]">24h Volume</h3>
+          {/* Price Card */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="md:col-span-2 bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h2 className="text-lg text-[#A0A0A0] mb-2">Bitcoin Price {isConnected && <span className="text-xs text-green-500">(Live)</span>}</h2>
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-5xl font-bold">
+                      ${btcData?.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                    <div className={`flex items-center gap-1 ${btcData && btcData.change24h >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                      {btcData && btcData.change24h >= 0 ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}
+                      <span className="text-xl font-semibold">
+                        {btcData?.change24h.toFixed(2)}%
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-[#A0A0A0] mt-1">
+                    ${btcData?.change24hAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} (24h)
+                  </p>
+                </div>
+                <div className={`px-4 py-2 rounded-lg ${trendDirection === 'BULLISH' ? 'bg-green-500/20 text-green-500' : trendDirection === 'BEARISH' ? 'bg-red-500/20 text-red-500' : 'bg-gray-500/20 text-gray-400'}`}>
+                  <div className="flex items-center gap-2">
+                    {trendDirection === 'BULLISH' ? <TrendingUp className="w-5 h-5" /> : trendDirection === 'BEARISH' ? <TrendingDown className="w-5 h-5" /> : <TrendingUpDown className="w-5 h-5" />}
+                    <span className="font-semibold">{trendDirection}</span>
+                  </div>
+                </div>
               </div>
-              <p className="text-3xl font-bold mb-1">
-                ${((btcData?.volume24h || 0) / 1000000000).toFixed(2)}B
+
+              <div className="grid grid-cols-3 gap-4 pt-4 border-t border-[#1C1C1C]">
+                <div>
+                  <p className="text-xs text-[#A0A0A0] mb-1">24h High</p>
+                  <p className="text-lg font-semibold">${btcData?.high24h.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#A0A0A0] mb-1">24h Low</p>
+                  <p className="text-lg font-semibold">${btcData?.low24h.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#A0A0A0] mb-1">24h Volume</p>
+                  <p className="text-lg font-semibold">${((btcData?.volume24h || 0) / 1000000000).toFixed(2)}B</p>
+                </div>
+              </div>
+            </div>
+
+            {/* RSI Card */}
+            <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Activity className="w-5 h-5 text-[#FF4040]" />
+                <h3 className="text-lg font-semibold">RSI (14)</h3>
+              </div>
+              <div className="text-center">
+                <div className="text-5xl font-bold mb-2" style={{ color: rsiStatus?.color }}>
+                  {rsi?.toFixed(1)}
+                </div>
+                <div className={`inline-block px-3 py-1 rounded-lg text-sm font-semibold mb-3`} style={{ 
+                  backgroundColor: rsiStatus?.color.replace('text-', 'bg-') + '/20',
+                  color: rsiStatus?.color 
+                }}>
+                  {rsiStatus?.status}
+                </div>
+                <p className="text-xs text-[#A0A0A0]">{rsiStatus?.description}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Technical Indicators Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            {/* SMA 20 */}
+            <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <BarChart3 className="w-4 h-4 text-[#FF4040]" />
+                <h4 className="text-sm font-semibold text-[#A0A0A0]">SMA (20)</h4>
+              </div>
+              <p className="text-2xl font-bold mb-2">
+                ${movingAverages.sma20?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || 'N/A'}
               </p>
+              <div className="w-full bg-[#0f0f0f] rounded-full h-2 mb-2">
+                <div 
+                  className={`h-2 rounded-full ${btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? 'bg-green-500' : 'bg-red-500'}`}
+                  style={{ width: btcData && movingAverages.sma20 ? `${Math.min((btcData.price / movingAverages.sma20) * 50, 100)}%` : '0%' }}
+                ></div>
+              </div>
               <p className="text-xs text-[#A0A0A0]">
-                High liquidity
+                {btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? '✓ Above SMA' : '✗ Below SMA'}
               </p>
             </div>
 
-            {/* Volatility */}
-            <div className="bg-[#161616] border border-[#1C1C1C] rounded-2xl p-6">
-              <div className="flex items-center gap-2 mb-2">
-                <Zap className="w-5 h-5 text-[#FF4040]" />
-                <h3 className="text-sm text-[#A0A0A0]">Volatility</h3>
+            {/* SMA 50 */}
+            <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <BarChart3 className="w-4 h-4 text-[#FF4040]" />
+                <h4 className="text-sm font-semibold text-[#A0A0A0]">SMA (50)</h4>
               </div>
-              <p className="text-3xl font-bold mb-1">
-                {volatility.toFixed(2)}%
+              <p className="text-2xl font-bold mb-2">
+                ${movingAverages.sma50?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || 'N/A'}
               </p>
+              <div className="w-full bg-[#0f0f0f] rounded-full h-2 mb-2">
+                <div 
+                  className={`h-2 rounded-full ${btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? 'bg-green-500' : 'bg-red-500'}`}
+                  style={{ width: btcData && movingAverages.sma50 ? `${Math.min((btcData.price / movingAverages.sma50) * 50, 100)}%` : '0%' }}
+                ></div>
+              </div>
               <p className="text-xs text-[#A0A0A0]">
-                24h price range
+                {btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? '✓ Above SMA' : '✗ Below SMA'}
+              </p>
+            </div>
+
+            {/* Golden/Death Cross */}
+            <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <Target className="w-4 h-4 text-[#FF4040]" />
+                <h4 className="text-sm font-semibold text-[#A0A0A0]">MA Cross</h4>
+              </div>
+              <p className={`text-2xl font-bold mb-2 ${movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 ? 'text-green-500' : 'text-red-500'}`}>
+                {movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 ? 'Golden' : 'Death'}
+              </p>
+              <div className="w-full bg-[#0f0f0f] rounded-full h-2 mb-2">
+                <div 
+                  className={`h-2 rounded-full ${movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 ? 'bg-green-500' : 'bg-red-500'}`}
+                  style={{ width: '100%' }}
+                ></div>
+              </div>
+              <p className="text-xs text-[#A0A0A0]">
+                {movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 
+                  ? 'Bullish trend confirmed'
+                  : 'Bearish trend confirmed'
+                }
+              </p>
+            </div>
+
+            {/* Market Sentiment */}
+            <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="w-4 h-4 text-[#FF4040]" />
+                <h4 className="text-sm font-semibold text-[#A0A0A0]">Sentiment</h4>
+              </div>
+              <p className={`text-xl font-bold mb-2 ${
+                marketSentiment === 'EXTREME_FEAR' ? 'text-red-600' :
+                marketSentiment === 'FEAR' ? 'text-red-400' :
+                marketSentiment === 'NEUTRAL' ? 'text-gray-400' :
+                marketSentiment === 'GREED' ? 'text-green-400' :
+                'text-green-600'
+              }`}>
+                {marketSentiment.replace('_', ' ')}
+              </p>
+              <div className="w-full bg-[#0f0f0f] rounded-full h-2 mb-2">
+                <div 
+                  className={`h-2 rounded-full ${
+                    marketSentiment === 'EXTREME_FEAR' ? 'bg-red-600' :
+                    marketSentiment === 'FEAR' ? 'bg-red-400' :
+                    marketSentiment === 'NEUTRAL' ? 'bg-gray-400' :
+                    marketSentiment === 'GREED' ? 'bg-green-400' :
+                    'bg-green-600'
+                  }`}
+                  style={{ width: '100%' }}
+                ></div>
+              </div>
+              <p className="text-xs text-[#A0A0A0]">
+                Based on RSI analysis
               </p>
             </div>
           </div>
 
-          {/* NEW: Moving Averages Panel */}
-          <div className="bg-[#161616] border border-[#1C1C1C] rounded-2xl p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <TrendingUpDown className="w-5 h-5 text-[#FF4040]" />
-              Moving Averages & MACD
-            </h2>
+          {/* MACD Analysis */}
+          <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Zap className="w-5 h-5 text-[#FF4040]" />
+              <h3 className="text-lg font-semibold">MACD Analysis</h3>
+            </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {/* SMA 20 */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#A0A0A0]">SMA (20)</span>
-                  <span className="text-lg font-bold">
-                    ${movingAverages.sma20?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || 'N/A'}
-                  </span>
-                </div>
-                <div className="w-full bg-[#0f0f0f] rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full ${btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? 'bg-green-500' : 'bg-red-500'}`}
-                    style={{ width: btcData && movingAverages.sma20 ? `${Math.min((btcData.price / movingAverages.sma20) * 50, 100)}%` : '0%' }}
-                  ></div>
-                </div>
-                <p className="text-xs text-[#A0A0A0]">
-                  {btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? '✓ Above SMA' : '✗ Below SMA'}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <p className="text-sm text-[#A0A0A0] mb-2">MACD Line</p>
+                <p className="text-2xl font-bold">
+                  {movingAverages.macd?.toFixed(2) || 'N/A'}
                 </p>
               </div>
-
-              {/* SMA 50 */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#A0A0A0]">SMA (50)</span>
-                  <span className="text-lg font-bold">
-                    ${movingAverages.sma50?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || 'N/A'}
-                  </span>
-                </div>
-                <div className="w-full bg-[#0f0f0f] rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full ${btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? 'bg-green-500' : 'bg-red-500'}`}
-                    style={{ width: btcData && movingAverages.sma50 ? `${Math.min((btcData.price / movingAverages.sma50) * 50, 100)}%` : '0%' }}
-                  ></div>
-                </div>
-                <p className="text-xs text-[#A0A0A0]">
-                  {btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? '✓ Above SMA' : '✗ Below SMA'}
+              <div>
+                <p className="text-sm text-[#A0A0A0] mb-2">Signal Line</p>
+                <p className="text-2xl font-bold">
+                  {movingAverages.macdSignal?.toFixed(2) || 'N/A'}
                 </p>
               </div>
-
-              {/* Golden/Death Cross */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#A0A0A0]">MA Cross</span>
-                  <span className={`text-lg font-bold ${movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 ? 'text-green-500' : 'text-red-500'}`}>
-                    {movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 ? 'Golden' : 'Death'}
-                  </span>
-                </div>
-                <div className="w-full bg-[#0f0f0f] rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full ${movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 ? 'bg-green-500' : 'bg-red-500'}`}
-                    style={{ width: '100%' }}
-                  ></div>
-                </div>
-                <p className="text-xs text-[#A0A0A0]">
-                  {movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 
-                    ? 'SMA 20 > SMA 50 (Bullish)' 
-                    : 'SMA 20 < SMA 50 (Bearish)'}
-                </p>
-              </div>
-
-              {/* EMA 12 */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#A0A0A0]">EMA (12)</span>
-                  <span className="text-lg font-bold">
-                    ${movingAverages.ema12?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || 'N/A'}
-                  </span>
-                </div>
-                <p className="text-xs text-[#A0A0A0]">Fast exponential average</p>
-              </div>
-
-              {/* EMA 26 */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#A0A0A0]">EMA (26)</span>
-                  <span className="text-lg font-bold">
-                    ${movingAverages.ema26?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || 'N/A'}
-                  </span>
-                </div>
-                <p className="text-xs text-[#A0A0A0]">Slow exponential average</p>
-              </div>
-
-              {/* MACD */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#A0A0A0]">MACD Line</span>
-                  <span className={`text-lg font-bold ${movingAverages.macd && movingAverages.macd > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {movingAverages.macd?.toFixed(0) || 'N/A'}
-                  </span>
-                </div>
-                <p className="text-xs text-[#A0A0A0]">
-                  Signal: {movingAverages.macdSignal?.toFixed(0) || 'N/A'}
+              <div>
+                <p className="text-sm text-[#A0A0A0] mb-2">Histogram</p>
+                <p className={`text-2xl font-bold ${movingAverages.macdHistogram && movingAverages.macdHistogram > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {movingAverages.macdHistogram?.toFixed(2) || 'N/A'}
                 </p>
               </div>
             </div>
+
+            <div className={`mt-4 p-4 rounded-lg ${getMACDColor(macdSignal).replace('text-', 'bg-')}/20`}>
+              <div className="flex items-center gap-2 mb-2">
+                <div className={`w-3 h-3 rounded-full ${getMACDColor(macdSignal).replace('text-', 'bg-')}`}></div>
+                <p className={`font-semibold ${getMACDColor(macdSignal)}`}>
+                  {macdSignal.replace('_', ' ')}
+                </p>
+              </div>
+              <p className="text-sm text-[#A0A0A0]">
+                {macdSignal === 'BULLISH_CROSSOVER' && 'Strong buy signal - MACD crossed above signal line'}
+                {macdSignal === 'BEARISH_CROSSOVER' && 'Strong sell signal - MACD crossed below signal line'}
+                {macdSignal === 'BULLISH' && 'Momentum remains positive'}
+                {macdSignal === 'BEARISH' && 'Momentum remains negative'}
+                {macdSignal === 'NEUTRAL' && 'Waiting for clear signal'}
+              </p>
+            </div>
           </div>
 
-          {/* Technical Analysis */}
-          <div className="bg-[#161616] border border-[#1C1C1C] rounded-2xl p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+          {/* Market Insights */}
+          <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6 mb-6">
+            <div className="flex items-center gap-2 mb-6">
               <Cpu className="w-5 h-5 text-[#FF4040]" />
-              Technical Indicators
-            </h2>
-            
+              <h3 className="text-lg font-semibold">Market Insights</h3>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Left Column */}
               <div className="space-y-4">
-                {/* RSI Analysis */}
+                {/* RSI Insight */}
                 <div className="flex items-start gap-3">
-                  <div className={`w-2 h-2 rounded-full mt-2 ${rsi && rsi > 70 ? 'bg-red-500' : rsi && rsi < 30 ? 'bg-green-500' : 'bg-blue-400'}`}></div>
+                  <div className={`w-2 h-2 rounded-full mt-2 ${rsiStatus?.color.replace('text-', 'bg-')}`}></div>
                   <div className="flex-1">
-                    <p className="font-medium">RSI Indicator: {rsi?.toFixed(2)}</p>
-                    <p className="text-sm text-[#A0A0A0] mt-1">
-                      {rsi && rsi > 70 && 'Overbought - potential reversal zone'}
-                      {rsi && rsi < 30 && 'Oversold - potential bounce zone'}
-                      {rsi && rsi >= 30 && rsi <= 70 && 'Neutral - trend continuation likely'}
-                    </p>
+                    <p className="font-medium">RSI: {rsiStatus?.status}</p>
+                    <p className="text-sm text-[#A0A0A0] mt-1">{rsiStatus?.description}</p>
                   </div>
                 </div>
 
-                {/* Price Momentum */}
-                <div className="flex items-start gap-3">
-                  <div className={`w-2 h-2 rounded-full mt-2 ${btcData && btcData.change24h > 5 ? 'bg-green-500' : btcData && btcData.change24h < -5 ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
-                  <div className="flex-1">
-                    <p className="font-medium">Price Momentum: {btcData?.change24h.toFixed(2)}%</p>
-                    <p className="text-sm text-[#A0A0A0] mt-1">
-                      {btcData && btcData.change24h > 5 && 'Strong bullish momentum'}
-                      {btcData && btcData.change24h < -5 && 'Strong bearish momentum'}
-                      {btcData && Math.abs(btcData.change24h) <= 5 && 'Moderate price movement'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* NEW: Moving Average Analysis */}
+                {/* Trend Direction */}
                 <div className="flex items-start gap-3">
                   <div className={`w-2 h-2 rounded-full mt-2 ${
-                    movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 
-                      ? 'bg-green-500' 
-                      : 'bg-red-500'
+                    trendDirection === 'BULLISH' ? 'bg-green-500' :
+                    trendDirection === 'BEARISH' ? 'bg-red-500' :
+                    'bg-gray-500'
                   }`}></div>
                   <div className="flex-1">
-                    <p className="font-medium">Moving Average Trend</p>
+                    <p className="font-medium">Trend: {trendDirection}</p>
                     <p className="text-sm text-[#A0A0A0] mt-1">
                       {movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50
-                        ? 'Golden Cross detected - bullish signal'
-                        : 'Death Cross present - bearish signal'}
+                        ? 'Golden Cross active - medium-term bullish trend confirmed.'
+                        : 'Death Cross present - medium-term bearish pressure expected.'
+                      }
                     </p>
                   </div>
                 </div>
 
-                {/* Volume Analysis */}
+                {/* Volatility */}
                 <div className="flex items-start gap-3">
-                  <div className="w-2 h-2 rounded-full mt-2 bg-purple-400"></div>
+                  <div className="w-2 h-2 rounded-full mt-2 bg-blue-400"></div>
                   <div className="flex-1">
-                    <p className="font-medium">Trading Volume</p>
+                    <p className="font-medium">Volatility: {volatility.toFixed(2)}%</p>
                     <p className="text-sm text-[#A0A0A0] mt-1">
-                      ${((btcData?.volume24h || 0) / 1000000000).toFixed(2)}B in 24h - 
-                      {(btcData?.volume24h || 0) > 200000000000 ? ' Exceptionally high' : 
-                       (btcData?.volume24h || 0) > 100000000000 ? ' High' : ' Moderate'} activity
+                      {volatility > 5 ? 'High volatility detected' : volatility > 3 ? 'Moderate volatility' : 'Low volatility environment'}. 24h trading volume: ${((btcData?.volume24h || 0) / 1000000000).toFixed(2)}B - {
+                        (btcData?.volume24h || 0) > 200000000000 ? 'Exceptionally high' : 
+                        (btcData?.volume24h || 0) > 100000000000 ? 'High' : 'Moderate'
+                      } activity
                     </p>
                   </div>
                 </div>
@@ -673,7 +659,7 @@ const PremiumPage = () => {
 
               {/* Right Column */}
               <div className="space-y-4">
-                {/* NEW: MACD Analysis */}
+                {/* MACD Analysis */}
                 <div className="flex items-start gap-3">
                   <div className={`w-2 h-2 rounded-full mt-2 ${getMACDColor(macdSignal).replace('text-', 'bg-')}`}></div>
                   <div className="flex-1">
@@ -712,12 +698,11 @@ const PremiumPage = () => {
 
                 {/* Price Range */}
                 <div className="flex items-start gap-3">
-                  <div className="w-2 h-2 rounded-full mt-2 bg-pink-400"></div>
+                  <div className="w-2 h-2 rounded-full mt-2 bg-purple-400"></div>
                   <div className="flex-1">
                     <p className="font-medium">24h Price Range</p>
                     <p className="text-sm text-[#A0A0A0] mt-1">
-                      Low: ${btcData?.low24h.toLocaleString(undefined, { maximumFractionDigits: 0 })} | 
-                      High: ${btcData?.high24h.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      ${btcData?.low24h.toLocaleString(undefined, { maximumFractionDigits: 2 })} - ${btcData?.high24h.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </p>
                   </div>
                 </div>
@@ -725,34 +710,26 @@ const PremiumPage = () => {
             </div>
           </div>
 
-          {/* Trading Insights */}
-          <div className="bg-[#161616] border border-[#1C1C1C] rounded-2xl p-6">
-            <h2 className="text-xl font-bold mb-4">Market Insights & Strategy</h2>
-            
-            <div className="space-y-3">
+          {/* Trading Recommendations */}
+          <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6 mb-6">
+            <div className="flex items-center gap-2 mb-6">
+              <DollarSign className="w-5 h-5 text-[#FF4040]" />
+              <h3 className="text-lg font-semibold">Trading Insights & Recommendations</h3>
+            </div>
+
+            <div className="space-y-4">
               <div className="flex items-start gap-3">
                 <span className="text-[#FF4040] font-bold">•</span>
                 <p className="text-sm text-[#A0A0A0]">
-                  <span className="text-white font-medium">For Traders:</span> {
-                    rsi && rsi > 70 ? 'Overbought conditions suggest caution. Consider profit-taking or wait for pullback.' :
-                    rsi && rsi < 30 ? 'Oversold conditions present potential entry. Wait for reversal confirmation.' :
-                    trendDirection === 'BULLISH' && macdSignal.includes('BULLISH') ? 'Strong bullish confluence - uptrend confirmed by both RSI and MACD.' :
-                    trendDirection === 'BEARISH' && macdSignal.includes('BEARISH') ? 'Bearish signals dominate - consider short positions or wait for reversal.' :
-                    'Mixed signals - wait for clearer direction before entering positions.'
-                  }
-                </p>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <span className="text-[#FF4040] font-bold">•</span>
-                <p className="text-sm text-[#A0A0A0]">
-                  <span className="text-white font-medium">Moving Average Signal:</span> {
+                  <span className="text-white font-medium">For Short-Term Traders:</span> {
+                    rsiStatus?.status === 'OVERSOLD' ? 'Strong RSI oversold signal - potential bounce opportunity within 24-48h.' :
+                    rsiStatus?.status === 'OVERBOUGHT' ? 'RSI overbought - consider profit-taking or wait for retracement.' :
+                    'Monitor for RSI extremes before entering positions.'
+                  } {
                     movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50
-                      ? 'Golden Cross active - medium-term bullish trend confirmed.'
-                      : 'Death Cross present - medium-term bearish pressure expected.'
-                  } {btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20
-                    ? 'Price trading above 20-day MA supports upside.'
-                    : 'Price below 20-day MA suggests downside risk.'}
+                      ? 'Price trading above 20-day MA supports upside.'
+                      : 'Price below 20-day MA suggests downside risk.'
+                  }
                 </p>
               </div>
               
@@ -796,10 +773,15 @@ const PremiumPage = () => {
           {/* Disclaimer */}
           <div className="mt-6 p-4 bg-[#161616] border border-[#1C1C1C] rounded-2xl">
             <p className="text-xs text-[#A0A0A0]">
-              <span className="font-bold text-white">Disclaimer:</span> This dashboard provides educational information based on technical indicators including RSI, Moving Averages, and MACD. 
+              <span className="font-bold text-white">Disclaimer:</span> This dashboard provides educational information based on technical indicators including RSI, Moving Averages, and MACD. Real-time price data is powered by Pyth Lazer on Magicblock ephemeral rollups. 
               It is not financial advice. Cryptocurrency markets are highly volatile and unpredictable. Always conduct your own research (DYOR) and never invest more than you can afford to lose. 
               Past performance does not guarantee future results. Technical indicators can produce false signals.
             </p>
+          </div>
+
+          {/* Whale Monitor Section */}
+          <div className="mt-6">
+            <WhaleMonitor btcPrice={btcData?.price || 0} />
           </div>
         </div>
       </div>
