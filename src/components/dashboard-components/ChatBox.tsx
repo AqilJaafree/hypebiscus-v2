@@ -4,12 +4,13 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  ChartLine,
-  Clock,
-  Plus,
-  Wallet,
-  ArrowClockwise,
-  Shuffle,
+  ChartLineIcon,
+  ClockIcon,
+  PlusIcon,
+  WalletIcon,
+  ArrowClockwiseIcon,
+  ShuffleIcon,
+  XIcon,
 } from "@phosphor-icons/react";
 import BtcPoolsList from "./BtcPoolsList";
 import BtcFilterDropdown from "./BtcFilterDropdown";
@@ -747,11 +748,12 @@ const ChatBox: React.FC = () => {
   // Split AI response function
   const splitAIResponse = (response: string): { part1: string, part2: string } => {
     if (!response) return { part1: "", part2: "" };
-    
+
     const splitKeywords = [
-      "Risk Considerations:", 
-      "Risk Analysis:", 
-      "Potential Risks:", 
+      "Risk considerations:", // lowercase version
+      "Risk Considerations:",
+      "Risk Analysis:",
+      "Potential Risks:",
       "Risk Assessment:",
       "Risk Factors:",
       "Risk Profile:",
@@ -760,7 +762,7 @@ const ChatBox: React.FC = () => {
       "Key risks to be aware of:",
       "Risks to consider:"
     ];
-    
+
     for (const keyword of splitKeywords) {
       const index = response.indexOf(keyword);
       if (index !== -1) {
@@ -770,10 +772,10 @@ const ChatBox: React.FC = () => {
         };
       }
     }
-    
+
     const questionRegex = /\n\n(Have you considered|Would you like|Are you interested|What are your thoughts|How do you feel|Do you prefer|Are you looking|What's your|What is your|Do you have)[^?]+\?(\s*\n\n[^?]+\?)*(\s*\n\n.*)?$/;
     const questionMatch = response.match(questionRegex);
-    
+
     if (questionMatch) {
       const questionIndex = questionMatch.index!;
       return {
@@ -781,7 +783,7 @@ const ChatBox: React.FC = () => {
         part2: response.substring(questionIndex).trim()
       };
     }
-    
+
     return { part1: response, part2: "" };
   };
 
@@ -801,7 +803,7 @@ const ChatBox: React.FC = () => {
             <div className="grid grid-cols-1 gap-3 w-full max-w-xl">
               <div className="flex items-start gap-3">
                 <div className="flex-shrink-0">
-                  <Clock className="text-primary" size={18} />
+                  <ClockIcon className="text-primary" size={18} />
                 </div>
                 <p className="text-white text-xs md:text-sm break-words">
                   Find the best places to earn with your Bitcoin - updated live.
@@ -810,7 +812,7 @@ const ChatBox: React.FC = () => {
               
               <div className="flex items-start gap-3">
                 <div className="flex-shrink-0">
-                  <Plus className="text-primary" size={18} />
+                  <PlusIcon className="text-primary" size={18} />
                 </div>
                 <p className="text-white text-xs md:text-sm break-words">
                   Start earning with one click - no complicated steps.
@@ -819,7 +821,7 @@ const ChatBox: React.FC = () => {
               
               <div className="flex items-start gap-3">
                 <div className="flex-shrink-0">
-                  <ChartLine className="text-primary" size={18} />
+                  <ChartLineIcon className="text-primary" size={18} />
                 </div>
                 <p className="text-white text-xs md:text-sm break-words">
                   See exactly how much you can earn and how safe each option is.
@@ -828,7 +830,7 @@ const ChatBox: React.FC = () => {
               
               <div className="flex items-start gap-3">
                 <div className="flex-shrink-0">
-                  <Wallet className="text-primary" size={18} />
+                  <WalletIcon className="text-primary" size={18} />
                 </div>
                 <p className="text-white text-xs md:text-sm break-words">
                   You keep full control of your Bitcoin - we never hold your funds.
@@ -837,7 +839,7 @@ const ChatBox: React.FC = () => {
               
               <div className="flex items-start gap-3">
                 <div className="flex-shrink-0">
-                  <Shuffle className="text-primary" size={18} />
+                  <ShuffleIcon className="text-primary" size={18} />
                 </div>
                 <p className="text-white text-xs md:text-sm break-words">
                   Swap any Solana token instantly - built right in.
@@ -853,7 +855,7 @@ const ChatBox: React.FC = () => {
             className="bg-secondary/30 border-primary text-white flex items-center gap-2 w-full max-w-xs"
             onClick={() => setIsPortfolioStyleModalOpen(true)}
           >
-            <ChartLine size={18} />
+            <ChartLineIcon size={18} />
             <span>Find Your Perfect Pool</span>
           </Button>
         </div>
@@ -912,7 +914,7 @@ return (
           onClick={() => setShowJupiterPlugin(true)}
           title="Open Jupiter Plugin for token swaps"
         >
-          <Shuffle size={14} />
+          <ShuffleIcon size={14} />
           <span className="hidden sm:inline">Swap</span>
         </Button>
 
@@ -925,7 +927,7 @@ return (
             disabled={isPoolLoading}
             title="Find different BTC pools with your current portfolio style"
           >
-            <ArrowClockwise
+            <ArrowClockwiseIcon
               size={14}
               className={isPoolLoading ? "animate-spin" : ""}
             />
@@ -959,15 +961,24 @@ return (
 
     {/* Jupiter Plugin Modal */}
     {showJupiterPlugin && (
-      <div 
+      <div
         className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
         onClick={() => setShowJupiterPlugin(false)}
       >
-        <div 
-          className="w-full max-w-md lg:h-[600px] h-[85vh] max-h-[800px] rounded-lg overflow-hidden"
+        <div
+          className="w-full max-w-md lg:h-[600px] h-[85vh] max-h-[800px] rounded-lg overflow-hidden relative"
           onClick={(e) => e.stopPropagation()} // Prevent clicks on plugin from closing modal
         >
-          <JupiterPlugin 
+          {/* Close button - only visible on mobile and iPad */}
+          <button
+            onClick={() => setShowJupiterPlugin(false)}
+            className="absolute top-2 right-2 z-[60] lg:hidden bg-red-800/90 hover:bg-gray-700 text-white rounded-full p-[5px] shadow-lg transition-colors"
+            aria-label="Close Jupiter Plugin"
+          >
+            <XIcon size={18} />
+          </button>
+
+          <JupiterPlugin
             className="w-full"
             onClose={() => setShowJupiterPlugin(false)}
           />

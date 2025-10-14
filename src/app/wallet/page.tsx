@@ -17,7 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
-import type { PositionType } from '@/lib/meteora/meteoraDlmmService'
+import type { PositionType } from "@/lib/meteora/meteoraDlmmService";
 
 // ===================== JUPITER LITE API INTEGRATION =====================
 // This section uses the Jupiter Lite API (https://lite-api.jup.ag) to fetch
@@ -37,6 +37,22 @@ async function fetchTokenMeta(mint: string) {
   const token = data[0];
   tokenMetaCache[mint] = token;
   return token;
+}
+
+// Helper function to check if a pool is a valid BTC pool
+// Based on poolSearchService.ts validation logic
+function isValidBTCPool(tokenXSymbol: string, tokenYSymbol: string): boolean {
+  const pairName = `${tokenXSymbol?.toLowerCase()}-${tokenYSymbol?.toLowerCase()}`;
+
+  // Check if it matches valid BTC-SOL pairs (from poolSearchService)
+  return (
+    pairName === "wbtc-sol" ||
+    pairName === "sol-wbtc" ||
+    pairName === "zbtc-sol" ||
+    pairName === "sol-zbtc" ||
+    pairName === "cbbtc-sol" ||
+    pairName === "sol-cbbtc"
+  );
 }
 
 // Helper to format balance with dynamic superscript for leading zeros after decimal
@@ -63,34 +79,39 @@ function formatBalanceWithSub(balance: number, decimals = 6) {
 
 // Define a type for token meta fetched from Jupiter API
 interface TokenMeta {
-  icon: string
-  symbol: string
-  usdPrice?: number
-  [key: string]: unknown
+  icon: string;
+  symbol: string;
+  usdPrice?: number;
+  [key: string]: unknown;
 }
 
 // Minimal interfaces for pool and binData
 interface PoolWithActiveId {
-  activeId?: number
-  tokenXMint?: unknown
-  tokenYMint?: unknown
-  [key: string]: unknown
+  activeId?: number;
+  tokenXMint?: unknown;
+  tokenYMint?: unknown;
+  currentMarketPrice?: number;
+  [key: string]: unknown;
 }
-type BinData = { binId: number; pricePerToken?: string | number }
+type BinData = { binId: number; pricePerToken?: string | number };
 
-type MaybeBase58 = { toBase58?: () => string }
+type MaybeBase58 = { toBase58?: () => string };
 // Custom hook to fetch token meta for a pool
 function useTokenMeta(pool: PoolWithActiveId) {
   const [tokenXMeta, setTokenXMeta] = React.useState<TokenMeta | null>(null);
   const [tokenYMeta, setTokenYMeta] = React.useState<TokenMeta | null>(null);
   React.useEffect(() => {
     if (!pool) return;
-    const xMint = pool.tokenXMint && typeof (pool.tokenXMint as MaybeBase58).toBase58 === 'function'
-      ? (pool.tokenXMint as MaybeBase58).toBase58!()
-      : pool.tokenXMint;
-    const yMint = pool.tokenYMint && typeof (pool.tokenYMint as MaybeBase58).toBase58 === 'function'
-      ? (pool.tokenYMint as MaybeBase58).toBase58!()
-      : pool.tokenYMint;
+    const xMint =
+      pool.tokenXMint &&
+      typeof (pool.tokenXMint as MaybeBase58).toBase58 === "function"
+        ? (pool.tokenXMint as MaybeBase58).toBase58!()
+        : pool.tokenXMint;
+    const yMint =
+      pool.tokenYMint &&
+      typeof (pool.tokenYMint as MaybeBase58).toBase58 === "function"
+        ? (pool.tokenYMint as MaybeBase58).toBase58!()
+        : pool.tokenYMint;
     fetchTokenMeta(xMint as string).then(setTokenXMeta);
     fetchTokenMeta(yMint as string).then(setTokenYMeta);
   }, [pool]);
@@ -113,8 +134,8 @@ function usePositionActions(
     try {
       const posKey = pos.publicKey;
       const user = publicKey;
-      const lowerBinId = Number(pos.positionData.lowerBinId)
-      const upperBinId = Number(pos.positionData.upperBinId)
+      const lowerBinId = Number(pos.positionData.lowerBinId);
+      const upperBinId = Number(pos.positionData.upperBinId);
       const connection = new Connection(
         process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
           "https://api.mainnet-beta.solana.com"
@@ -205,10 +226,10 @@ function usePositionActions(
 }
 
 type PositionInfoLike = {
-  tokenX?: { mint?: { decimals?: number } }
-  tokenY?: { mint?: { decimals?: number } }
-  [key: string]: unknown
-}
+  tokenX?: { mint?: { decimals?: number } };
+  tokenY?: { mint?: { decimals?: number } };
+  [key: string]: unknown;
+};
 
 // Custom hook for extracting and formatting position display data
 function usePositionDisplayData(
@@ -224,32 +245,47 @@ function usePositionDisplayData(
       ? Number(binData[0].pricePerToken)
       : 0;
   const maxPrice =
-    binData && binData.length > 0 && binData[binData.length - 1].pricePerToken !== undefined
+    binData &&
+    binData.length > 0 &&
+    binData[binData.length - 1].pricePerToken !== undefined
       ? Number(binData[binData.length - 1].pricePerToken)
       : 0;
+  // Get current market price - use the fetched current market price if available
   let currentPrice = 0;
-  if (binData && binData.length > 0 && pool.activeId !== undefined) {
+
+  // First, check if we have the actual current market price attached
+  if (pool.currentMarketPrice !== undefined) {
+    currentPrice = Number(pool.currentMarketPrice);
+  }
+  // Fallback: try to find active bin in position binData
+  else if (binData && binData.length > 0 && pool.activeId !== undefined) {
     const activeBin = binData.find((b: BinData) => b.binId === pool.activeId);
     if (activeBin && activeBin.pricePerToken !== undefined) {
       currentPrice = Number(activeBin.pricePerToken);
     } else {
+      // Final fallback: use middle of position range
       const mid = Math.floor(binData.length / 2);
-      currentPrice = binData[mid] && binData[mid].pricePerToken !== undefined
-        ? Number(binData[mid].pricePerToken)
-        : 0;
+      currentPrice =
+        binData[mid] && binData[mid].pricePerToken !== undefined
+          ? Number(binData[mid].pricePerToken)
+          : 0;
     }
   }
   // Improved fallback for decimals
   let xDecimals: number = 0;
-  if (typeof pos.tokenXDecimals === 'number') xDecimals = pos.tokenXDecimals;
-  else if (typeof pool.tokenXDecimals === 'number') xDecimals = pool.tokenXDecimals;
-  else if (typeof positionInfo?.tokenX?.mint?.decimals === 'number') xDecimals = positionInfo.tokenX.mint.decimals;
+  if (typeof pos.tokenXDecimals === "number") xDecimals = pos.tokenXDecimals;
+  else if (typeof pool.tokenXDecimals === "number")
+    xDecimals = pool.tokenXDecimals;
+  else if (typeof positionInfo?.tokenX?.mint?.decimals === "number")
+    xDecimals = positionInfo.tokenX.mint.decimals;
   else xDecimals = 0;
 
   let yDecimals: number = 0;
-  if (typeof pos.tokenYDecimals === 'number') yDecimals = pos.tokenYDecimals;
-  else if (typeof pool.tokenYDecimals === 'number') yDecimals = pool.tokenYDecimals;
-  else if (typeof positionInfo?.tokenY?.mint?.decimals === 'number') yDecimals = positionInfo.tokenY.mint.decimals;
+  if (typeof pos.tokenYDecimals === "number") yDecimals = pos.tokenYDecimals;
+  else if (typeof pool.tokenYDecimals === "number")
+    yDecimals = pool.tokenYDecimals;
+  else if (typeof positionInfo?.tokenY?.mint?.decimals === "number")
+    yDecimals = positionInfo.tokenY.mint.decimals;
   else yDecimals = 0;
 
   const xBalance = pos.positionData.totalXAmount
@@ -308,6 +344,7 @@ function PositionItem({
   positionInfo,
   refreshPositions,
   viewMode,
+  positionIndex = 0,
 }: {
   lbPairAddress: string;
   positionInfo: {
@@ -317,11 +354,12 @@ function PositionItem({
   };
   refreshPositions: () => void;
   viewMode: "table" | "card";
+  positionIndex?: number;
 }) {
-  const pos = positionInfo.lbPairPositionsData[0];
+  const pos = positionInfo.lbPairPositionsData[positionIndex];
   const pool = positionInfo.lbPair;
   const { tokenXMeta, tokenYMeta } = useTokenMeta(pool);
-  
+
   // Use shared hook for actions
   const {
     closing,
@@ -330,7 +368,7 @@ function PositionItem({
     handleClaimFees,
     publicKey,
   } = usePositionActions(lbPairAddress, pos, refreshPositions);
-  
+
   // Use shared hook for display data
   const {
     minPrice,
@@ -346,28 +384,30 @@ function PositionItem({
 
   // Shared token pair display
   const TokenPairDisplay = () => (
-    <div className="flex items-center gap-2">
-      {tokenXMeta && (
-        <Image
-          src={tokenXMeta.icon}
-          alt={tokenXMeta.symbol}
-          width={24}
-          height={24}
-          className="rounded-full border-2 border-border"
-          unoptimized
-        />
-      )}
-      {tokenYMeta && (
-        <Image
-          src={tokenYMeta.icon}
-          alt={tokenYMeta.symbol}
-          width={24}
-          height={24}
-          className="rounded-full border-2 border-border"
-          unoptimized 
-        />
-      )}
-      <span className={`font-semibold ml-2 ${viewMode === "card" ? "text-lg" : ""}`}>
+    <div className="flex flex-col items-start">
+      <div className="flex items-start">
+        {tokenXMeta && (
+          <Image
+            src={tokenXMeta.icon}
+            alt={tokenXMeta.symbol}
+            width={32}
+            height={32}
+            className="rounded-full border-2 border-border"
+            unoptimized
+          />
+        )}
+        {tokenYMeta && (
+          <Image
+            src={tokenYMeta.icon}
+            alt={tokenYMeta.symbol}
+            width={32}
+            height={32}
+            className="rounded-full border-2 border-border -ml-2"
+            unoptimized
+          />
+        )}
+      </div>
+      <span className={`font-semibold ${viewMode === "card" ? "text-lg" : ""}`}>
         {tokenXMeta && tokenYMeta
           ? `${tokenXMeta.symbol} / ${tokenYMeta.symbol}`
           : ""}
@@ -376,11 +416,17 @@ function PositionItem({
   );
 
   // Shared balance display
-  const BalanceDisplay = ({ showIcons = false, size = "text-lg" }: { showIcons?: boolean; size?: string }) => (
+  const BalanceDisplay = ({
+    showIcons = false,
+    size = "text-lg",
+  }: {
+    showIcons?: boolean;
+    size?: string;
+  }) => (
     <>
       <div className="flex items-center gap-2 mb-1">
         {showIcons && tokenXMeta && (
-          <Image    
+          <Image
             src={tokenXMeta.icon}
             alt={tokenXMeta.symbol}
             width={20}
@@ -424,7 +470,13 @@ function PositionItem({
   );
 
   // Shared fee display
-  const FeeDisplay = ({ showIcons = false, size = "text-lg" }: { showIcons?: boolean; size?: string }) => (
+  const FeeDisplay = ({
+    showIcons = false,
+    size = "text-lg",
+  }: {
+    showIcons?: boolean;
+    size?: string;
+  }) => (
     <>
       <div className="flex items-center gap-2 mb-1">
         {showIcons && tokenXMeta && (
@@ -441,6 +493,11 @@ function PositionItem({
           {xFee === 0 ? "0" : formatBalanceWithSub(xFee, 6)}{" "}
           {tokenXMeta ? tokenXMeta.symbol : ""}
         </span>
+        {tokenXMeta && xFee !== 0 && (
+          <span className="text-xs text-gray-500 ml-1">
+            (${(xFee * Number(tokenXMeta.usdPrice || 0)).toFixed(2)})
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2">
         {showIcons && tokenYMeta && (
@@ -457,13 +514,26 @@ function PositionItem({
           {yFee === 0 ? "0" : formatBalanceWithSub(yFee, 6)}{" "}
           {tokenYMeta ? tokenYMeta.symbol : ""}
         </span>
+        {tokenYMeta && yFee !== 0 && (
+          <span className="text-xs text-gray-500 ml-1">
+            (${(yFee * Number(tokenYMeta.usdPrice || 0)).toFixed(2)})
+          </span>
+        )}
       </div>
     </>
   );
 
   // Shared action buttons
   const ActionButtons = ({ size = "text-sm" }: { size?: string }) => (
-    <div className={`flex ${viewMode === "card" ? "flex-col md:flex-row" : ""} justify-end gap-2 ${viewMode === "card" ? "mt-6" : ""}`}>
+    <div
+      className={`flex ${
+        viewMode === "card" ? "flex-col md:flex-row" : "flex-col"
+      } justify-end gap-2 ${viewMode === "card" ? "mt-6" : ""}`}
+    >
+      {/* REBALANCE BUTTON */}
+      {/* <Button variant="thirdary" className="{size}"><ScalesIcon />
+        Rebalance
+      </Button> */}
       <Button
         variant="secondary"
         className={size}
@@ -489,7 +559,7 @@ function PositionItem({
         <div className="flex items-center gap-2 mb-4">
           <TokenPairDisplay />
         </div>
-        
+
         {/* Summary Cards */}
         <div className="flex flex-col md:flex-row gap-6 mb-6">
           <div>
@@ -507,13 +577,19 @@ function PositionItem({
             </div>
           </div>
         </div>
-        
+
         {/* Range */}
         <div className="mb-4">
           <span className="block font-semibold mb-1">Range</span>
-          <RangeBar min={minPrice} max={maxPrice} current={currentPrice} />
+          <RangeBar
+            min={minPrice}
+            max={maxPrice}
+            current={currentPrice}
+            xBalance={xBalance}
+            yBalance={yBalance}
+          />
         </div>
-        
+
         {/* Position Liquidity Section */}
         <div className="bg-card-foreground border border-border rounded-lg p-4">
           <div className="text-lg font-semibold mb-2">Position Liquidity</div>
@@ -556,7 +632,13 @@ function PositionItem({
         <FeeDisplay size="text-sm" />
       </td>
       <td className="px-4 py-3 whitespace-nowrap">
-        <RangeBar min={minPrice} max={maxPrice} current={currentPrice} />
+        <RangeBar
+          min={minPrice}
+          max={maxPrice}
+          current={currentPrice}
+          xBalance={xBalance}
+          yBalance={yBalance}
+        />
       </td>
       <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex justify-center gap-2">
@@ -616,16 +698,32 @@ const WalletPage = () => {
         userPubKey
       );
 
-      // userPositions.forEach((positionInfo, lbPairAddress) => {
-      //   // Custom replacer for JSON.stringify to handle BigInt, BN.js, and PublicKey
-      //   const replacer = (key: string, value: any) => {
-      //     if (typeof value === 'bigint') return value.toString()
-      //     if (value && value._bn) return value.toString()
-      //     if (value && typeof value.toBase58 === 'function') return value.toBase58()
-      //     return value
-      //   }
-      //   console.log(`Positions in pool ${lbPairAddress}:`, JSON.stringify(positionInfo, replacer, 2))
-      // });
+      // Fetch actual current market price for each pool
+      for (const [lbPairAddress, positionInfo] of userPositions.entries()) {
+        try {
+          // Create DLMM instance to get current price
+          const dlmmPool = await DLMM.create(
+            connection,
+            new PublicKey(lbPairAddress)
+          );
+
+          // Get the active bin with current market price
+          const activeBin = await dlmmPool.getActiveBin();
+
+          // Attach the current market price to the pool object
+          if (activeBin && activeBin.pricePerToken) {
+            // Type assertion to add currentMarketPrice to the pool object
+            const pool = positionInfo.lbPair as PoolWithActiveId;
+            pool.currentMarketPrice = Number(activeBin.pricePerToken);
+          }
+        } catch (error) {
+          console.error(
+            `Error fetching current price for pool ${lbPairAddress}:`,
+            error
+          );
+        }
+      }
+
       setPositions(userPositions);
 
       // Temporary: Set empty positions until DLMM is imported
@@ -643,11 +741,73 @@ const WalletPage = () => {
     }
   };
 
-  const positionsArray = Array.from(positions.entries());
+  // Define the position info type
+  type PositionInfoType = {
+    lbPair: PoolWithActiveId;
+    lbPairPositionsData: PositionType[];
+    [key: string]: unknown;
+  };
+
+  // Filter positions to only show BTC pools
+  const [filteredPositions, setFilteredPositions] = useState<
+    Map<string, PositionInfoType>
+  >(new Map());
+
+  // Filter positions when they change
+  useEffect(() => {
+    const filterBTCPositions = async () => {
+      const btcPositionsMap = new Map<string, PositionInfoType>();
+
+      for (const [lbPairAddress, positionInfo] of positions.entries()) {
+        const typedPositionInfo = positionInfo as PositionInfoType;
+
+        const pool = typedPositionInfo.lbPair;
+
+        // Get token mint addresses
+        const xMint =
+          pool.tokenXMint &&
+          typeof (pool.tokenXMint as MaybeBase58).toBase58 === "function"
+            ? (pool.tokenXMint as MaybeBase58).toBase58!()
+            : pool.tokenXMint;
+        const yMint =
+          pool.tokenYMint &&
+          typeof (pool.tokenYMint as MaybeBase58).toBase58 === "function"
+            ? (pool.tokenYMint as MaybeBase58).toBase58!()
+            : pool.tokenYMint;
+
+        try {
+          // Fetch token metadata to get symbols
+          const tokenXMeta = await fetchTokenMeta(xMint as string);
+          const tokenYMeta = await fetchTokenMeta(yMint as string);
+
+          // Check if this is a valid BTC pool using poolSearchService logic
+          if (
+            tokenXMeta &&
+            tokenYMeta &&
+            isValidBTCPool(tokenXMeta.symbol, tokenYMeta.symbol)
+          ) {
+            btcPositionsMap.set(lbPairAddress, typedPositionInfo);
+          }
+        } catch (error) {
+          console.error(`Error filtering pool ${lbPairAddress}:`, error);
+        }
+      }
+
+      setFilteredPositions(btcPositionsMap);
+    };
+
+    if (positions.size > 0) {
+      filterBTCPositions();
+    } else {
+      setFilteredPositions(new Map());
+    }
+  }, [positions]);
+
+  const positionsArray = Array.from(filteredPositions.entries());
 
   return (
     <PageTemplate>
-      <div className="p-0 md:p-6">
+      <div className="">
         <div className="mx-auto">
           {/* View Toggle */}
           <div className="flex justify-between mb-4">
@@ -725,29 +885,39 @@ const WalletPage = () => {
                     </tr>
                   </thead>
                   <tbody className="border-b border-border">
-                    {positionsArray.map(([lbPairAddress, positionInfo]) => (
-                      <PositionItem
-                        key={lbPairAddress}
-                        lbPairAddress={lbPairAddress}
-                        positionInfo={positionInfo}
-                        refreshPositions={refreshPositions}
-                        viewMode={viewMode}
-                      />
-                    ))}
+                    {positionsArray.map(([lbPairAddress, positionInfo]) =>
+                      positionInfo.lbPairPositionsData.map(
+                        (_: PositionType, idx: number) => (
+                          <PositionItem
+                            key={`${lbPairAddress}-${idx}`}
+                            lbPairAddress={lbPairAddress}
+                            positionInfo={positionInfo}
+                            positionIndex={idx}
+                            refreshPositions={refreshPositions}
+                            viewMode={viewMode}
+                          />
+                        )
+                      )
+                    )}
                   </tbody>
                 </table>
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {positionsArray.map(([lbPairAddress, positionInfo]) => (
-                  <PositionItem
-                    key={lbPairAddress}
-                    lbPairAddress={lbPairAddress}
-                    positionInfo={positionInfo}
-                    refreshPositions={refreshPositions}
-                    viewMode={viewMode}
-                  />
-                ))}
+                {positionsArray.map(([lbPairAddress, positionInfo]) =>
+                  positionInfo.lbPairPositionsData.map(
+                    (_: PositionType, idx: number) => (
+                      <PositionItem
+                        key={`${lbPairAddress}-${idx}`}
+                        lbPairAddress={lbPairAddress}
+                        positionInfo={positionInfo}
+                        positionIndex={idx}
+                        refreshPositions={refreshPositions}
+                        viewMode={viewMode}
+                      />
+                    )
+                  )
+                )}
               </div>
             ))}
 
