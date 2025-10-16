@@ -36,7 +36,7 @@ const Header = () => {
   }, []);
 
   return (
-    <div className="flex justify-between items-center lg:px-[70px] px-4 lg:pt-4 pt-2 lg:pb-0 pb-2">
+    <div className="flex justify-between items-center lg:px-[70px] px-4 pt-4 lg:pb-4 pb-0">
       <div>
         <Image
           src="/hypebiscus_logo.png"
