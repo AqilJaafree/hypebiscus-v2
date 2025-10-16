@@ -5,15 +5,26 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Connection, PublicKey, ParsedTransactionWithMeta } from '@solana/web3.js';
 import { Waves, TrendingUp, TrendingDown, ExternalLink, Clock } from 'lucide-react';
 
-// BTC token mints on Solana
+// CORRECTED BTC token mints (from your actual project)
 const BTC_TOKEN_MINTS = {
-  'wBTC': 'qfnqNqs3nCAHjnyCgLRDbBtq4p2MtHZxw8YjSyYhPoL',  // Wrapped BTC (Wormhole)
-  'zBTC': 'BXTnp1JARk4wfyvnYDQpZ3BbD5jDLwgGfxiNmUXSXW5v',  // Zeus BTC
-  'cbBTC': 'cbBTCZ67WVoNHUjRCBhLfq1RzaFDqcjb9QdFP6xwTz8',  // Coinbase BTC
+  'wBTC': '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',  // Correct wBTC
+  'zBTC': 'zBTCug3er3tLyffELcvDNrKkCymbPWysGcWihESYfLg',  // Correct zBTC (your fix)
+  'cbBTC': 'cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij', // Correct cbBTC
 };
 
-// Minimum transaction size to track (in USD)
-const WHALE_THRESHOLD = 100;
+// DEX Program IDs
+const DEX_PROGRAMS = {
+  JUPITER_V6: 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',
+  JUPITER_V4: 'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB',
+  RAYDIUM_V4: '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',
+  RAYDIUM_CLMM: 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK',
+  ORCA_WHIRLPOOL: 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc',
+  ORCA_WHIRLPOOLS: '9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP',
+  METEORA_DLMM: 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
+};
+
+// Lower threshold for testing
+const WHALE_THRESHOLD = 500; // $500 to catch more activity
 
 interface WhaleTransaction {
   signature: string;
@@ -24,26 +35,59 @@ interface WhaleTransaction {
   from: string;
   to: string;
   type: 'buy' | 'sell' | 'transfer';
+  dex?: string;
+  confidence?: string;
 }
 
 interface WhaleMonitorProps {
-  btcPrice: number; // Current BTC price in USD
+  btcPrice: number;
 }
 
 const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
   const [transactions, setTransactions] = useState<WhaleTransaction[]>([]);
-  const [isMonitoring, setIsMonitoring] = useState(true); // Auto-start monitoring
+  const [isMonitoring, setIsMonitoring] = useState(true);
   const [lastCheck, setLastCheck] = useState<Date>(new Date());
+  const [debugInfo, setDebugInfo] = useState<string>('Starting...');
   const connectionRef = useRef<Connection | null>(null);
   const signaturesSeen = useRef<Set<string>>(new Set());
+  const [persistentTransactions, setPersistentTransactions] = useState<WhaleTransaction[]>([]); // Keep transactions longer
 
   // Initialize connection
   useEffect(() => {
     const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
     connectionRef.current = new Connection(rpcUrl, 'confirmed');
+    console.log('🔗 Connection initialized with CORRECTED token addresses');
+    console.log('📋 Monitoring tokens:', BTC_TOKEN_MINTS);
   }, []);
 
-  // Parse transaction to extract whale activity
+  // Enhanced DEX detection
+  const detectDEX = useCallback((tx: ParsedTransactionWithMeta): { dex: string; confidence: string } => {
+    const instructions = tx.transaction.message.instructions;
+    
+    for (const ix of instructions) {
+      const programId = ix.programId.toString();
+      
+      if (programId === DEX_PROGRAMS.JUPITER_V6 || programId === DEX_PROGRAMS.JUPITER_V4) {
+        return { dex: 'Jupiter', confidence: 'HIGH' };
+      }
+      if (programId === DEX_PROGRAMS.RAYDIUM_V4) {
+        return { dex: 'Raydium V4', confidence: 'HIGH' };
+      }
+      if (programId === DEX_PROGRAMS.RAYDIUM_CLMM) {
+        return { dex: 'Raydium CLMM', confidence: 'HIGH' };
+      }
+      if (programId === DEX_PROGRAMS.ORCA_WHIRLPOOL || programId === DEX_PROGRAMS.ORCA_WHIRLPOOLS) {
+        return { dex: 'Orca', confidence: 'HIGH' };
+      }
+      if (programId === DEX_PROGRAMS.METEORA_DLMM) {
+        return { dex: 'Meteora', confidence: 'HIGH' };
+      }
+    }
+    
+    return { dex: 'Unknown', confidence: 'LOW' };
+  }, []);
+
+  // Parse transaction
   const parseTransaction = useCallback((
     tx: ParsedTransactionWithMeta,
     signature: string,
@@ -52,11 +96,9 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
     if (!tx || !tx.meta || !tx.blockTime) return null;
 
     try {
-      // Extract pre and post token balances
       const preBalances = tx.meta.preTokenBalances || [];
       const postBalances = tx.meta.postTokenBalances || [];
 
-      // Find BTC token transfers
       for (let i = 0; i < postBalances.length; i++) {
         const preBalance = preBalances.find(pb => pb.accountIndex === postBalances[i].accountIndex);
         if (!preBalance) continue;
@@ -68,16 +110,12 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
         if (diff === 0) continue;
 
         const usdValue = diff * btcPrice;
-
-        // Only track whale-sized transactions
         if (usdValue < WHALE_THRESHOLD) continue;
 
-        // Get accounts involved
         const accountKeys = tx.transaction.message.accountKeys;
         const fromAddress = accountKeys[0]?.pubkey.toString() || 'Unknown';
         const toAddress = postBalances[i].owner || 'Unknown';
 
-        // Determine transaction type
         let type: 'buy' | 'sell' | 'transfer' = 'transfer';
         if (postAmount > preAmount) type = 'buy';
         else if (postAmount < preAmount) type = 'sell';
@@ -100,68 +138,118 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
     return null;
   }, [btcPrice]);
 
-  // Monitor transactions for a specific token
-  const monitorToken = useCallback(async (tokenSymbol: string, mintAddress: string) => {
+  // Monitor ALL token accounts with rate limiting
+  const monitorAllTokens = useCallback(async () => {
     if (!connectionRef.current) return;
 
     try {
-      const pubkey = new PublicKey(mintAddress);
-      
-      // Get recent signatures
-      const signatures = await connectionRef.current.getSignaturesForAddress(pubkey, {
-        limit: 10,
-      });
+      setDebugInfo('Checking BTC tokens (rate limited)...');
+      console.log('🔍 Checking all BTC token accounts with rate limits...');
 
-      // Filter out already seen signatures
-      const newSignatures = signatures.filter(sig => !signaturesSeen.current.has(sig.signature));
+      const allTransactions: WhaleTransaction[] = [];
 
-      if (newSignatures.length === 0) return;
+      // Monitor each BTC token account sequentially with delays
+      for (const [symbol, mint] of Object.entries(BTC_TOKEN_MINTS)) {
+        try {
+          console.log(`📊 Checking ${symbol} (${mint})`);
+          
+          const signatures = await connectionRef.current.getSignaturesForAddress(
+            new PublicKey(mint),
+            { limit: 3 } // Reduced to 3 for rate limits
+          );
 
-      // Mark signatures as seen
-      newSignatures.forEach(sig => signaturesSeen.current.add(sig.signature));
+          const newSignatures = signatures.filter(sig => !signaturesSeen.current.has(sig.signature));
+          
+          if (newSignatures.length > 0) {
+            console.log(`🆕 Found ${newSignatures.length} new ${symbol} transactions`);
+            
+            // Mark as seen
+            newSignatures.forEach(sig => signaturesSeen.current.add(sig.signature));
 
-      // Get transaction details
-      const txPromises = newSignatures.map(sig =>
-        connectionRef.current!.getParsedTransaction(sig.signature, {
-          maxSupportedTransactionVersion: 0,
-        })
-      );
+            // Process transactions one by one with delays
+            for (let i = 0; i < newSignatures.length; i++) {
+              try {
+                const tx = await connectionRef.current!.getParsedTransaction(newSignatures[i].signature, {
+                  maxSupportedTransactionVersion: 0,
+                });
 
-      const txs = await Promise.all(txPromises);
+                if (tx) {
+                  const { dex, confidence } = detectDEX(tx);
+                  const whaleTx = parseTransaction(tx, newSignatures[i].signature, symbol);
+                  
+                  if (whaleTx) {
+                    whaleTx.dex = dex;
+                    whaleTx.confidence = confidence;
+                    allTransactions.push(whaleTx);
+                    console.log(`🐋 ${symbol} whale: $${whaleTx.usdValue.toFixed(0)} on ${dex}`);
+                  }
+                }
 
-      // Parse transactions
-      const whaleTransactions: WhaleTransaction[] = [];
-      txs.forEach((tx, idx) => {
-        if (!tx) return;
-        const whaleTx = parseTransaction(tx, newSignatures[idx].signature, tokenSymbol);
-        if (whaleTx) whaleTransactions.push(whaleTx);
-      });
+                // Add delay between transaction fetches
+                if (i < newSignatures.length - 1) {
+                  await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
+                }
+              } catch (error) {
+                console.warn(`Failed to fetch transaction:`, error);
+              }
+            }
+          }
 
-      if (whaleTransactions.length > 0) {
-        setTransactions(prev => [...whaleTransactions, ...prev].slice(0, 20)); // Keep last 20
+          // Add delay between different tokens
+          const tokenEntries = Object.entries(BTC_TOKEN_MINTS);
+          const currentIndex = tokenEntries.findIndex(([s]) => s === symbol);
+          if (currentIndex < tokenEntries.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay between tokens
+          }
+          
+        } catch (error) {
+          console.error(`Error monitoring ${symbol}:`, error);
+        }
       }
-    } catch (error) {
-      console.error(`Error monitoring ${tokenSymbol}:`, error);
-    }
-  }, [parseTransaction]);
 
-  // Main monitoring loop
+      if (allTransactions.length > 0) {
+        console.log(`🎉 Total whales found: ${allTransactions.length}`);
+        setDebugInfo(`Found ${allTransactions.length} whale transactions!`);
+        
+        // Add new transactions to persistent list instead of replacing
+        setPersistentTransactions(prev => {
+          const combined = [...allTransactions, ...prev];
+          // Keep transactions for 30 seconds
+          const thirtySecondsAgo = Date.now() - (30 * 1000);
+          const filtered = combined.filter(tx => tx.timestamp > thirtySecondsAgo);
+          return filtered.slice(0, 7); // Still limit to 7 max
+        });
+        
+        // Update display transactions
+        setTransactions(allTransactions.slice(0, 7));
+      } else {
+        setDebugInfo('No new whale activity detected');
+        // Don't clear transactions - keep showing persistent ones
+      }
+
+    } catch (error) {
+      console.error('Error in monitoring:', error);
+      setDebugInfo(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [parseTransaction, detectDEX]);
+
+  // Main monitoring loop with slower interval
   useEffect(() => {
     if (!isMonitoring) return;
 
+    console.log('🚀 Starting rate-limited whale monitoring');
+    monitorAllTokens(); // Run immediately
+
     const interval = setInterval(async () => {
       setLastCheck(new Date());
-      
-      // Monitor all BTC tokens
-      await Promise.all(
-        Object.entries(BTC_TOKEN_MINTS).map(([symbol, mint]) =>
-          monitorToken(symbol, mint)
-        )
-      );
-    }, 10000); // Check every 10 seconds
+      await monitorAllTokens();
+    }, 15000); // Check every 15 seconds (slower for rate limits)
 
     return () => clearInterval(interval);
-  }, [isMonitoring, monitorToken]);
+  }, [isMonitoring, monitorAllTokens]);
+
+  // Use persistent transactions for display (they last longer)
+  const displayTransactions = persistentTransactions.length > 0 ? persistentTransactions : transactions;
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -194,7 +282,7 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
           <Waves className="w-6 h-6 text-[#FF4040]" />
           <div>
             <h3 className="text-lg font-semibold">Whale Activity</h3>
-            <p className="text-xs text-[#A0A0A0]">Large BTC transactions on Solana</p>
+            <p className="text-xs text-[#A0A0A0]">Large BTC transactions on Solana • Rate limited for RPC</p>
           </div>
         </div>
         <button
@@ -213,26 +301,38 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
       {isMonitoring && (
         <div className="flex items-center gap-2 mb-4 text-xs text-[#A0A0A0]">
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span>Live monitoring • Last check: {formatTime(lastCheck.getTime())}</span>
+          <span>Live monitoring • Last check: {formatTime(lastCheck.getTime())} • 15s intervals</span>
         </div>
       )}
 
-      {/* Threshold Info */}
+      {/* Debug Info */}
+      {isMonitoring && (
+        <div className="mb-4 p-2 bg-[#1a1a1a] rounded text-xs text-green-400 font-mono">
+          {debugInfo}
+        </div>
+      )}
+
+      {/* Token Info */}
       <div className="mb-4 p-3 bg-[#161616] rounded-lg">
         <p className="text-xs text-[#A0A0A0]">
-          Tracking transactions over <span className="text-[#FF4040] font-semibold">${(WHALE_THRESHOLD / 1000).toFixed(0)}K</span> across wBTC, zBTC, and cbBTC
+          ✅ Rate Limited: Checking <span className="text-[#FF4040] font-semibold">${(WHALE_THRESHOLD / 1000).toFixed(0)}K+</span> trades every 15s • Keep for 30s
+          <br />
+          <span className="text-green-400 font-mono text-[10px]">
+            wBTC: 3NZ9... • zBTC: zBTC... • cbBTC: cbbt...
+          </span>
         </p>
       </div>
 
       {/* Transaction List */}
       <div className="space-y-3">
-        {transactions.length === 0 ? (
+        {displayTransactions.length === 0 ? (
           <div className="text-center py-8 text-[#A0A0A0]">
             {isMonitoring ? (
               <>
                 <Waves className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">Monitoring for whale activity...</p>
-                <p className="text-xs mt-1">Large transactions will appear here</p>
+                <p className="text-sm">Monitoring with rate limits...</p>
+                <p className="text-xs mt-1">Checking every 15 seconds for whale activity</p>
+                <p className="text-xs mt-2 text-green-400">Check console for debug logs</p>
               </>
             ) : (
               <>
@@ -241,7 +341,7 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
             )}
           </div>
         ) : (
-          transactions.map((tx) => (
+          displayTransactions.map((tx) => (
             <div
               key={tx.signature}
               className="p-4 bg-[#161616] rounded-xl border border-[#1C1C1C] hover:border-[#FF4040]/30 transition-colors"
@@ -280,6 +380,28 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
                       </span>
                       <span className="text-xs text-[#A0A0A0]">•</span>
                       <span className="text-xs text-[#A0A0A0]">{tx.token}</span>
+                      {tx.dex && (
+                        <>
+                          <span className="text-xs text-[#A0A0A0]">•</span>
+                          <span className={`text-xs font-medium ${
+                            tx.dex === 'Jupiter' ? 'text-[#FF4040]' :
+                            tx.dex.includes('Raydium') ? 'text-purple-400' :
+                            tx.dex === 'Orca' ? 'text-blue-400' :
+                            tx.dex === 'Meteora' ? 'text-green-400' :
+                            'text-gray-400'
+                          }`}>{tx.dex}</span>
+                        </>
+                      )}
+                      {tx.confidence && (
+                        <>
+                          <span className="text-xs text-[#A0A0A0]">•</span>
+                          <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                            tx.confidence === 'HIGH' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                          }`}>
+                            {tx.confidence}
+                          </span>
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <Clock className="w-3 h-3 text-[#A0A0A0]" />
@@ -322,11 +444,11 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
         )}
       </div>
 
-      {/* Disclaimer */}
-      {transactions.length > 0 && (
-        <div className="mt-4 p-3 bg-[#161616] rounded-lg">
-          <p className="text-xs text-[#A0A0A0]">
-            <span className="font-bold text-white">Note:</span> Whale transactions may indicate market sentiment shifts. Always DYOR before making trading decisions.
+      {/* Persistent Notice */}
+      {displayTransactions.length > 0 && (
+        <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+          <p className="text-xs text-blue-400">
+            <span className="font-bold">⏰ Persistent:</span> Transactions stay visible for 30 seconds. Rate limited every 15s.
           </p>
         </div>
       )}
