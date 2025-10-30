@@ -5,15 +5,14 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, TrendingDown, TrendingUp, Activity, DollarSign, BarChart3, Zap, RefreshCw, Target, Cpu, Users, ArrowUpRight, ArrowDownRight, TrendingUpDown } from 'lucide-react';
 import { useMagicblockWebSocket } from '@/hooks/useMagicblockWebSocket';
 import WhaleMonitor from '@/components/premium-components/WhaleMonitor';
+import PnLStats from '@/components/premium-components/PnLStats';
 
-// Bitcoin feed configuration
 const BITCOIN_FEED = {
   pyth_lazer_id: 'btc-usd',
   name: 'Bitcoin',
   symbol: 'BTC'
 };
 
-// RSI Calculation (Wilder's method)
 const calculateRSI = (prices: number[], period = 14): number | null => {
   if (prices.length < period + 1) return null;
   
@@ -45,14 +44,12 @@ const calculateRSI = (prices: number[], period = 14): number | null => {
   return 100 - (100 / (1 + rs));
 };
 
-// Simple Moving Average
 const calculateSMA = (prices: number[], period: number): number | null => {
   if (prices.length < period) return null;
   const sum = prices.slice(-period).reduce((acc, price) => acc + price, 0);
   return sum / period;
 };
 
-// Exponential Moving Average
 const calculateEMA = (prices: number[], period: number): number | null => {
   if (prices.length < period) return null;
   
@@ -68,7 +65,6 @@ const calculateEMA = (prices: number[], period: number): number | null => {
   return ema;
 };
 
-// MACD Calculation (12, 26, 9)
 const calculateMACD = (prices: number[]): { macd: number | null; signal: number | null; histogram: number | null } => {
   const ema12 = calculateEMA(prices, 12);
   const ema26 = calculateEMA(prices, 26);
@@ -118,7 +114,6 @@ type TrendDirection = 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
 type MACDSignal = 'BULLISH_CROSSOVER' | 'BEARISH_CROSSOVER' | 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 
 const PremiumPage = () => {
-  // Magicblock Pyth integration
   const { price: realtimePrice, isConnected, updateCount, error: pythError } = useMagicblockWebSocket(BITCOIN_FEED);
   
   const [btcData, setBtcData] = useState<BTCData | null>(null);
@@ -140,10 +135,8 @@ const PremiumPage = () => {
   const [macdSignal, setMacdSignal] = useState<MACDSignal>('NEUTRAL');
   const [error, setError] = useState<string | null>(null);
 
-  // Update price when realtime price changes
   useEffect(() => {
     if (realtimePrice && btcData) {
-      // Convert from raw integer to actual price (assuming 8 decimals for BTC)
       const formattedPrice = realtimePrice / Math.pow(10, 8);
       
       setBtcData(prev => {
@@ -160,10 +153,8 @@ const PremiumPage = () => {
         };
       });
 
-      // Add to historical prices for technical analysis
       setHistoricalPrices(prev => {
         const newPrices = [...prev, formattedPrice];
-        // Keep last 60 prices for calculations
         return newPrices.slice(-60);
       });
     }
@@ -171,7 +162,7 @@ const PremiumPage = () => {
 
   useEffect(() => {
     fetchBTCData();
-    const interval = setInterval(fetchBTCData, 300000); // Fetch every 5 minutes for backup data
+    const interval = setInterval(fetchBTCData, 300000);
     return () => clearInterval(interval);
   }, []);
 
@@ -192,49 +183,40 @@ const PremiumPage = () => {
       
       const data = await response.json();
       
-      const currentPrice = data.price || 0;
-      const priceChange24h = data.price_change_percentage_24h || 0;
-      const priceChange24hAmount = data.price_change_24h || 0;
-      const volume24h = data.total_volume_24h || 0;
-      const marketCap = data.market_cap || 0;
-      const circulatingSupply = data.circulating_supply || 0;
-      const maxSupply = data.max_supply || 21000000;
-      
-      const high24h = currentPrice + Math.abs(priceChange24hAmount);
-      const low24h = currentPrice - Math.abs(priceChange24hAmount);
-      
-      // Generate historical prices (50 days for MA calculations)
-      const prices: number[] = [];
-      const dailyVolatility = Math.abs(priceChange24h) / 100;
-      
-      let price = currentPrice;
-      for (let i = 60; i >= 0; i--) {
-        const dayChange = (Math.random() - 0.5) * dailyVolatility * 2;
-        price = price / (1 + dayChange);
-        prices.unshift(price);
+      if (data && data.price !== undefined) {
+        const newData: BTCData = {
+          price: data.price,
+          change24h: data.change24h || 0,
+          change24hAmount: data.change24hAmount || 0,
+          volume24h: data.volume24h || 0,
+          high24h: data.high24h || data.price,
+          low24h: data.low24h || data.price,
+          marketCap: data.marketCap || 0,
+          circulatingSupply: data.circulatingSupply || 19000000,
+          maxSupply: data.maxSupply || 21000000
+        };
+        
+        setBtcData(newData);
+        setLastUpdate(new Date());
+        
+        setHistoricalPrices(prev => {
+          const newPrices = [...prev, newData.price];
+          return newPrices.slice(-60);
+        });
+        
+        setLoading(false);
       }
-      prices.push(currentPrice);
-      
-      setHistoricalPrices(prices);
-      
-      const calculatedRSI = calculateRSI(prices, 14);
+    } catch (err) {
+      const error = err as Error;
+      setError(error.message || 'Failed to fetch Bitcoin data');
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (historicalPrices.length >= 14) {
+      const calculatedRSI = calculateRSI(historicalPrices);
       setRsi(calculatedRSI);
-      
-      const sma20 = calculateSMA(prices, 20);
-      const sma50 = calculateSMA(prices, 50);
-      const ema12 = calculateEMA(prices, 12);
-      const ema26 = calculateEMA(prices, 26);
-      const macdData = calculateMACD(prices);
-      
-      setMovingAverages({
-        sma20,
-        sma50,
-        ema12,
-        ema26,
-        macd: macdData.macd,
-        macdSignal: macdData.signal,
-        macdHistogram: macdData.histogram
-      });
       
       if (calculatedRSI !== null) {
         if (calculatedRSI <= 30) setMarketSentiment('EXTREME_FEAR');
@@ -243,49 +225,54 @@ const PremiumPage = () => {
         else if (calculatedRSI <= 70) setMarketSentiment('GREED');
         else setMarketSentiment('EXTREME_GREED');
       }
-      
-      if (sma20 && sma50) {
-        if (sma20 > sma50 * 1.02) setTrendDirection('BULLISH');
-        else if (sma20 < sma50 * 0.98) setTrendDirection('BEARISH');
-        else setTrendDirection('SIDEWAYS');
-      }
-      
-      if (macdData.macd && macdData.signal && macdData.histogram) {
-        const prevHistogram = macdData.histogram - 100;
-        
-        if (macdData.histogram > 0 && prevHistogram <= 0) {
-          setMacdSignal('BULLISH_CROSSOVER');
-        } else if (macdData.histogram < 0 && prevHistogram >= 0) {
-          setMacdSignal('BEARISH_CROSSOVER');
-        } else if (macdData.histogram > 0) {
-          setMacdSignal('BULLISH');
-        } else if (macdData.histogram < 0) {
-          setMacdSignal('BEARISH');
-        } else {
-          setMacdSignal('NEUTRAL');
-        }
-      }
-      
-      setBtcData({
-        price: currentPrice,
-        change24h: priceChange24h,
-        change24hAmount: priceChange24hAmount,
-        volume24h,
-        high24h,
-        low24h,
-        marketCap,
-        circulatingSupply,
-        maxSupply
-      });
-      
-      setLastUpdate(new Date());
-      setLoading(false);
-    } catch (err) {
-      console.error('Error fetching BTC data:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch Bitcoin data');
-      setLoading(false);
     }
-  };
+    
+    const sma20 = calculateSMA(historicalPrices, 20);
+    const sma50 = calculateSMA(historicalPrices, 50);
+    const ema12 = calculateEMA(historicalPrices, 12);
+    const ema26 = calculateEMA(historicalPrices, 26);
+    const macdData = calculateMACD(historicalPrices);
+    
+    setMovingAverages({
+      sma20,
+      sma50,
+      ema12,
+      ema26,
+      macd: macdData.macd,
+      macdSignal: macdData.signal,
+      macdHistogram: macdData.histogram
+    });
+    
+    if (sma20 && sma50) {
+      if (sma20 > sma50) setTrendDirection('BULLISH');
+      else if (sma20 < sma50) setTrendDirection('BEARISH');
+      else setTrendDirection('SIDEWAYS');
+    }
+    
+    if (macdData.macd !== null && macdData.signal !== null && macdData.histogram !== null) {
+      if (macdData.histogram > 0 && macdData.macd > macdData.signal) {
+        if (historicalPrices.length >= 2) {
+          const prevMACD = calculateMACD(historicalPrices.slice(0, -1));
+          if (prevMACD.histogram !== null && prevMACD.histogram <= 0) {
+            setMacdSignal('BULLISH_CROSSOVER');
+          } else {
+            setMacdSignal('BULLISH');
+          }
+        }
+      } else if (macdData.histogram < 0 && macdData.macd < macdData.signal) {
+        if (historicalPrices.length >= 2) {
+          const prevMACD = calculateMACD(historicalPrices.slice(0, -1));
+          if (prevMACD.histogram !== null && prevMACD.histogram >= 0) {
+            setMacdSignal('BEARISH_CROSSOVER');
+          } else {
+            setMacdSignal('BEARISH');
+          }
+        }
+      } else {
+        setMacdSignal('NEUTRAL');
+      }
+    }
+  }, [historicalPrices]);
 
   const getRSIStatus = (rsi: number): { status: string; color: string; description: string } => {
     if (rsi <= 30) return { 
@@ -365,7 +352,6 @@ const PremiumPage = () => {
     <PageTemplate>
       <div className="w-full text-white py-4">
         <div className="max-w-7xl mx-auto">
-          {/* Header */}
           <div className="mb-8">
             <div className="flex items-center justify-between mb-2">
               <h1 className="text-3xl md:text-4xl font-bold text-[#FF4040]">
@@ -396,7 +382,6 @@ const PremiumPage = () => {
             </div>
           </div>
 
-          {/* Price Card */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             <div className="md:col-span-2 bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
               <div className="flex items-start justify-between mb-4">
@@ -441,7 +426,6 @@ const PremiumPage = () => {
               </div>
             </div>
 
-            {/* RSI Card */}
             <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Activity className="w-5 h-5 text-[#FF4040]" />
@@ -462,9 +446,7 @@ const PremiumPage = () => {
             </div>
           </div>
 
-          {/* Technical Indicators Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-            {/* SMA 20 */}
             <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
               <div className="flex items-center gap-2 mb-3">
                 <BarChart3 className="w-4 h-4 text-[#FF4040]" />
@@ -476,15 +458,14 @@ const PremiumPage = () => {
               <div className="w-full bg-[#0f0f0f] rounded-full h-2 mb-2">
                 <div 
                   className={`h-2 rounded-full ${btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? 'bg-green-500' : 'bg-red-500'}`}
-                  style={{ width: btcData && movingAverages.sma20 ? `${Math.min((btcData.price / movingAverages.sma20) * 50, 100)}%` : '0%' }}
+                  style={{ width: '100%' }}
                 ></div>
               </div>
               <p className="text-xs text-[#A0A0A0]">
-                {btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? '✓ Above SMA' : '✗ Below SMA'}
+                {btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? 'Price above MA' : 'Price below MA'}
               </p>
             </div>
 
-            {/* SMA 50 */}
             <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
               <div className="flex items-center gap-2 mb-3">
                 <BarChart3 className="w-4 h-4 text-[#FF4040]" />
@@ -496,21 +477,20 @@ const PremiumPage = () => {
               <div className="w-full bg-[#0f0f0f] rounded-full h-2 mb-2">
                 <div 
                   className={`h-2 rounded-full ${btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? 'bg-green-500' : 'bg-red-500'}`}
-                  style={{ width: btcData && movingAverages.sma50 ? `${Math.min((btcData.price / movingAverages.sma50) * 50, 100)}%` : '0%' }}
+                  style={{ width: '100%' }}
                 ></div>
               </div>
               <p className="text-xs text-[#A0A0A0]">
-                {btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? '✓ Above SMA' : '✗ Below SMA'}
+                {btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? 'Price above MA' : 'Price below MA'}
               </p>
             </div>
 
-            {/* Golden/Death Cross */}
             <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
               <div className="flex items-center gap-2 mb-3">
                 <Target className="w-4 h-4 text-[#FF4040]" />
                 <h4 className="text-sm font-semibold text-[#A0A0A0]">MA Cross</h4>
               </div>
-              <p className={`text-2xl font-bold mb-2 ${movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 ? 'text-green-500' : 'text-red-500'}`}>
+              <p className="text-xl font-bold mb-2">
                 {movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 ? 'Golden' : 'Death'}
               </p>
               <div className="w-full bg-[#0f0f0f] rounded-full h-2 mb-2">
@@ -527,7 +507,6 @@ const PremiumPage = () => {
               </p>
             </div>
 
-            {/* Market Sentiment */}
             <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
               <div className="flex items-center gap-2 mb-3">
                 <Users className="w-4 h-4 text-[#FF4040]" />
@@ -560,7 +539,6 @@ const PremiumPage = () => {
             </div>
           </div>
 
-          {/* MACD Analysis */}
           <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6 mb-6">
             <div className="flex items-center gap-2 mb-4">
               <Zap className="w-5 h-5 text-[#FF4040]" />
@@ -605,7 +583,6 @@ const PremiumPage = () => {
             </div>
           </div>
 
-          {/* Market Insights */}
           <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6 mb-6">
             <div className="flex items-center gap-2 mb-6">
               <Cpu className="w-5 h-5 text-[#FF4040]" />
@@ -613,9 +590,7 @@ const PremiumPage = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Left Column */}
               <div className="space-y-4">
-                {/* RSI Insight */}
                 <div className="flex items-start gap-3">
                   <div className={`w-2 h-2 rounded-full mt-2 ${rsiStatus?.color.replace('text-', 'bg-')}`}></div>
                   <div className="flex-1">
@@ -624,7 +599,6 @@ const PremiumPage = () => {
                   </div>
                 </div>
 
-                {/* Trend Direction */}
                 <div className="flex items-start gap-3">
                   <div className={`w-2 h-2 rounded-full mt-2 ${
                     trendDirection === 'BULLISH' ? 'bg-green-500' :
@@ -642,7 +616,6 @@ const PremiumPage = () => {
                   </div>
                 </div>
 
-                {/* Volatility */}
                 <div className="flex items-start gap-3">
                   <div className="w-2 h-2 rounded-full mt-2 bg-blue-400"></div>
                   <div className="flex-1">
@@ -657,9 +630,7 @@ const PremiumPage = () => {
                 </div>
               </div>
 
-              {/* Right Column */}
               <div className="space-y-4">
-                {/* MACD Analysis */}
                 <div className="flex items-start gap-3">
                   <div className={`w-2 h-2 rounded-full mt-2 ${getMACDColor(macdSignal).replace('text-', 'bg-')}`}></div>
                   <div className="flex-1">
@@ -674,7 +645,6 @@ const PremiumPage = () => {
                   </div>
                 </div>
 
-                {/* Supply Metrics */}
                 <div className="flex items-start gap-3">
                   <div className="w-2 h-2 rounded-full mt-2 bg-orange-400"></div>
                   <div className="flex-1">
@@ -685,7 +655,6 @@ const PremiumPage = () => {
                   </div>
                 </div>
 
-                {/* Market Cap */}
                 <div className="flex items-start gap-3">
                   <div className="w-2 h-2 rounded-full mt-2 bg-cyan-400"></div>
                   <div className="flex-1">
@@ -696,7 +665,6 @@ const PremiumPage = () => {
                   </div>
                 </div>
 
-                {/* Price Range */}
                 <div className="flex items-start gap-3">
                   <div className="w-2 h-2 rounded-full mt-2 bg-purple-400"></div>
                   <div className="flex-1">
@@ -710,7 +678,6 @@ const PremiumPage = () => {
             </div>
           </div>
 
-          {/* Trading Recommendations */}
           <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6 mb-6">
             <div className="flex items-center gap-2 mb-6">
               <DollarSign className="w-5 h-5 text-[#FF4040]" />
@@ -770,7 +737,6 @@ const PremiumPage = () => {
             </div>
           </div>
 
-          {/* Disclaimer */}
           <div className="mt-6 p-4 bg-[#161616] border border-[#1C1C1C] rounded-2xl">
             <p className="text-xs text-[#A0A0A0]">
               <span className="font-bold text-white">Disclaimer:</span> This dashboard provides educational information based on technical indicators including RSI, Moving Averages, and MACD. Real-time price data is powered by Pyth Lazer on Magicblock ephemeral rollups. 
@@ -779,7 +745,10 @@ const PremiumPage = () => {
             </p>
           </div>
 
-          {/* Whale Monitor Section */}
+          <div className="mt-6">
+            <PnLStats />
+          </div>
+
           <div className="mt-6">
             <WhaleMonitor btcPrice={btcData?.price || 0} />
           </div>
