@@ -115,7 +115,6 @@ export class PoolSearchService {
         this.config.allowedBinSteps.includes(binStep);
 
       if (isValidPair) {
-        console.log(`Found valid pair: ${pair.name} with bin step: ${binStep}`);
       }
       return isValidPair;
     });
@@ -169,7 +168,6 @@ export class PoolSearchService {
       const pools: ApiPool[] = [];
       
       if (poolsData && poolsData.groups && poolsData.groups.length > 0) {
-        console.log(`Found ${poolsData.groups.length} groups for ${searchTerm}`);
         
         (poolsData.groups as Group[]).forEach((group) => {
           if (group.pairs?.length > 0) {
@@ -199,7 +197,6 @@ export class PoolSearchService {
 
       if (!isDuplicate) {
         validPools.push(pair);
-        console.log(`Added new pool: ${pair.name} with bin step: ${pair.bin_step || "unknown"}`);
       }
     }
     
@@ -235,7 +232,6 @@ export class PoolSearchService {
     const allPools: ApiPool[] = [];
     const searchTerms = this.getSearchTermsForFilter(tokenFilter);
     
-    console.log(`Searching for ${tokenFilter || 'all'} BTC-SOL pairs with standard bin steps`);
     
     for (const term of searchTerms) {
       const result = await this.fetchPoolsForTerm(term, tokenFilter, handleAsyncError);
@@ -254,7 +250,6 @@ export class PoolSearchService {
     tokenFilter: string | undefined,
     handleAsyncError: <T>(operation: () => Promise<T>, context?: string) => Promise<T | null>
   ): Promise<ApiPool[]> {
-    console.log(`Only found ${existingPools.length} pools with direct searches, trying broader search`);
     
     const additionalPools: ApiPool[] = [];
     const broaderTerms = tokenFilter && tokenFilter !== 'btc' 
@@ -267,7 +262,6 @@ export class PoolSearchService {
       additionalPools.push(...validPools);
       
       if (validPools.length > 0) {
-        console.log(`Broader search found ${validPools.length} pairs for ${term}`);
       }
     }
     
@@ -324,8 +318,6 @@ export class PoolSearchService {
     // Step 3: Quality filtering
     allPools = this.filterPoolsByQuality(allPools);
     
-    console.log(`Total ${tokenLabel} pools found after filtering: ${allPools.length}`);
-    console.log("Pool bin steps found:", allPools.map((p) => `${p.name}: ${p.bin_step}`).join(", "));
     
     return allPools;
   }
@@ -364,13 +356,6 @@ export class PoolSearchService {
     shownPoolAddresses: string[]
   ): ApiPool | null {
     if (pools.length === 0) return null;
-
-    console.log("Top 3 sorted pools:", pools.slice(0, 3).map((p) => ({
-      name: p.name,
-      tvl: p.liquidity,
-      apy: p.apy,
-      binStep: p.bin_step || "unknown",
-    })));
 
     // Sort and select optimal pool
     const sortedPools = sortPoolsByStyle(pools, style || 'conservative');

@@ -309,7 +309,6 @@ export class MeteoraDlmmService {
         }
       } catch {
         // Fallback: use a conservative approach
-        console.log('Using conservative bin detection fallback');
         
         // Assume bins around the active bin exist
         const activeBin = await typedPool.getActiveBin();
@@ -324,7 +323,6 @@ export class MeteoraDlmmService {
         }
       }
       
-      console.log(`Found ${existingBins.length} existing bins in range ${minBinId}-${maxBinId}`);
       return existingBins.sort((a, b) => a - b);
     } catch (error) {
       console.error('Error checking existing bins:', error);

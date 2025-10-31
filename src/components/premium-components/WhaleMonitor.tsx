@@ -1,18 +1,16 @@
 // src/components/premium-components/WhaleMonitor.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Connection, PublicKey, ParsedTransactionWithMeta } from '@solana/web3.js';
-import { Waves, TrendingUp, TrendingDown, ExternalLink, Clock } from 'lucide-react';
+import { Waves, TrendingUp, TrendingDown, ExternalLink, Star, StarOff } from 'lucide-react';
 
-// CORRECTED BTC token mints (from your actual project)
 const BTC_TOKEN_MINTS = {
-  'wBTC': '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',  // Correct wBTC
-  'zBTC': 'zBTCug3er3tLyffELcvDNrKkCymbPWysGcWihESYfLg',  // Correct zBTC (your fix)
-  'cbBTC': 'cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij', // Correct cbBTC
+  'wBTC': '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',
+  'zBTC': 'zBTCug3er3tLyffELcvDNrKkCymbPWysGcWihESYfLg',
+  'cbBTC': 'cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij',
 };
 
-// DEX Program IDs
 const DEX_PROGRAMS = {
   JUPITER_V6: 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',
   JUPITER_V4: 'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB',
@@ -23,8 +21,7 @@ const DEX_PROGRAMS = {
   METEORA_DLMM: 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
 };
 
-// Lower threshold for testing
-const WHALE_THRESHOLD = 500; // $500 to catch more activity
+const WHALE_THRESHOLD = 500;
 
 interface WhaleTransaction {
   signature: string;
@@ -33,61 +30,133 @@ interface WhaleTransaction {
   amount: number;
   usdValue: number;
   from: string;
+  fromFull: string;
   to: string;
+  toFull: string;
   type: 'buy' | 'sell' | 'transfer';
   dex?: string;
-  confidence?: string;
 }
 
 interface WhaleMonitorProps {
   btcPrice: number;
 }
 
+interface WalletStats {
+  wallet: string;
+  dexCounts: Record<string, number>;
+  totalTx: number;
+  lastSeen: number;
+}
+
+interface MarketStats {
+  dexCounts: Record<string, number>;
+  totalTx: number;
+  totalVolume: number;
+}
+
 const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
   const [transactions, setTransactions] = useState<WhaleTransaction[]>([]);
   const [isMonitoring, setIsMonitoring] = useState(true);
-  const [lastCheck, setLastCheck] = useState<Date>(new Date());
-  const [debugInfo, setDebugInfo] = useState<string>('Starting...');
+  const [trackedWallets, setTrackedWallets] = useState<Set<string>>(new Set());
+  const [walletStats, setWalletStats] = useState<Map<string, WalletStats>>(new Map());
+  const [marketStats, setMarketStats] = useState<MarketStats>({
+    dexCounts: {},
+    totalTx: 0,
+    totalVolume: 0
+  });
   const connectionRef = useRef<Connection | null>(null);
   const signaturesSeen = useRef<Set<string>>(new Set());
-  const [persistentTransactions, setPersistentTransactions] = useState<WhaleTransaction[]>([]); // Keep transactions longer
+  const statsProcessed = useRef<Set<string>>(new Set());
 
-  // Initialize connection
+  // Load tracked wallets and stats from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('trackedWhaleWallets');
+    const savedStats = localStorage.getItem('whaleWalletStats');
+    const savedMarket = localStorage.getItem('whaleMarketStats');
+
+    if (saved) {
+      setTrackedWallets(new Set(JSON.parse(saved)));
+    }
+    if (savedStats) {
+      const parsed = JSON.parse(savedStats);
+      setWalletStats(new Map(Object.entries(parsed)));
+    }
+    if (savedMarket) {
+      setMarketStats(JSON.parse(savedMarket));
+    }
+  }, []);
+
+  // Save tracked wallets and stats
+  const saveTrackedWallets = (wallets: Set<string>) => {
+    localStorage.setItem('trackedWhaleWallets', JSON.stringify(Array.from(wallets)));
+    setTrackedWallets(new Set(wallets));
+  };
+
+  const saveWalletStats = useCallback((stats: Map<string, WalletStats>) => {
+    const obj = Object.fromEntries(stats);
+    localStorage.setItem('whaleWalletStats', JSON.stringify(obj));
+    setWalletStats(new Map(stats));
+  }, []);
+
+  const updateWalletStats = useCallback((wallet: string, dex: string, timestamp: number) => {
+    setWalletStats(prevStats => {
+      const newStats = new Map(prevStats);
+      const current = newStats.get(wallet) || {
+        wallet,
+        dexCounts: {},
+        totalTx: 0,
+        lastSeen: 0
+      };
+
+      current.dexCounts[dex] = (current.dexCounts[dex] || 0) + 1;
+      current.totalTx += 1;
+      current.lastSeen = timestamp;
+
+      newStats.set(wallet, current);
+
+      // Also save to localStorage
+      const obj = Object.fromEntries(newStats);
+      localStorage.setItem('whaleWalletStats', JSON.stringify(obj));
+
+      return newStats;
+    });
+  }, []);
+
+  const toggleTracking = (wallet: string) => {
+    const newTracked = new Set(trackedWallets);
+    if (newTracked.has(wallet)) {
+      newTracked.delete(wallet);
+      // Remove stats when untracking
+      const newStats = new Map(walletStats);
+      newStats.delete(wallet);
+      saveWalletStats(newStats);
+    } else {
+      newTracked.add(wallet);
+    }
+    saveTrackedWallets(newTracked);
+  };
+
   useEffect(() => {
     const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
     connectionRef.current = new Connection(rpcUrl, 'confirmed');
-    console.log('🔗 Connection initialized with CORRECTED token addresses');
-    console.log('📋 Monitoring tokens:', BTC_TOKEN_MINTS);
   }, []);
 
-  // Enhanced DEX detection
-  const detectDEX = useCallback((tx: ParsedTransactionWithMeta): { dex: string; confidence: string } => {
+  const detectDEX = useCallback((tx: ParsedTransactionWithMeta): string => {
     const instructions = tx.transaction.message.instructions;
-    
+
     for (const ix of instructions) {
       const programId = ix.programId.toString();
-      
-      if (programId === DEX_PROGRAMS.JUPITER_V6 || programId === DEX_PROGRAMS.JUPITER_V4) {
-        return { dex: 'Jupiter', confidence: 'HIGH' };
-      }
-      if (programId === DEX_PROGRAMS.RAYDIUM_V4) {
-        return { dex: 'Raydium V4', confidence: 'HIGH' };
-      }
-      if (programId === DEX_PROGRAMS.RAYDIUM_CLMM) {
-        return { dex: 'Raydium CLMM', confidence: 'HIGH' };
-      }
-      if (programId === DEX_PROGRAMS.ORCA_WHIRLPOOL || programId === DEX_PROGRAMS.ORCA_WHIRLPOOLS) {
-        return { dex: 'Orca', confidence: 'HIGH' };
-      }
-      if (programId === DEX_PROGRAMS.METEORA_DLMM) {
-        return { dex: 'Meteora', confidence: 'HIGH' };
-      }
+
+      if (programId === DEX_PROGRAMS.JUPITER_V6 || programId === DEX_PROGRAMS.JUPITER_V4) return 'Jupiter';
+      if (programId === DEX_PROGRAMS.RAYDIUM_V4) return 'Raydium';
+      if (programId === DEX_PROGRAMS.RAYDIUM_CLMM) return 'Raydium';
+      if (programId === DEX_PROGRAMS.ORCA_WHIRLPOOL || programId === DEX_PROGRAMS.ORCA_WHIRLPOOLS) return 'Orca';
+      if (programId === DEX_PROGRAMS.METEORA_DLMM) return 'Meteora';
     }
-    
-    return { dex: 'Unknown', confidence: 'LOW' };
+
+    return 'Transfer';
   }, []);
 
-  // Parse transaction
   const parseTransaction = useCallback((
     tx: ParsedTransactionWithMeta,
     signature: string,
@@ -113,8 +182,8 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
         if (usdValue < WHALE_THRESHOLD) continue;
 
         const accountKeys = tx.transaction.message.accountKeys;
-        const fromAddress = accountKeys[0]?.pubkey.toString() || 'Unknown';
-        const toAddress = postBalances[i].owner || 'Unknown';
+        const fromAddressFull = accountKeys[0]?.pubkey.toString() || 'Unknown';
+        const toAddressFull = postBalances[i].owner || 'Unknown';
 
         let type: 'buy' | 'sell' | 'transfer' = 'transfer';
         if (postAmount > preAmount) type = 'buy';
@@ -126,8 +195,10 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
           token: tokenSymbol,
           amount: diff,
           usdValue,
-          from: fromAddress.slice(0, 4) + '...' + fromAddress.slice(-4),
-          to: toAddress.slice(0, 4) + '...' + toAddress.slice(-4),
+          from: fromAddressFull.slice(0, 4) + '...' + fromAddressFull.slice(-4),
+          fromFull: fromAddressFull,
+          to: toAddressFull.slice(0, 4) + '...' + toAddressFull.slice(-4),
+          toFull: toAddressFull,
           type,
         };
       }
@@ -138,35 +209,24 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
     return null;
   }, [btcPrice]);
 
-  // Monitor ALL token accounts with rate limiting
   const monitorAllTokens = useCallback(async () => {
     if (!connectionRef.current) return;
 
     try {
-      setDebugInfo('Checking BTC tokens (rate limited)...');
-      console.log('🔍 Checking all BTC token accounts with rate limits...');
-
       const allTransactions: WhaleTransaction[] = [];
 
-      // Monitor each BTC token account sequentially with delays
       for (const [symbol, mint] of Object.entries(BTC_TOKEN_MINTS)) {
         try {
-          console.log(`📊 Checking ${symbol} (${mint})`);
-          
           const signatures = await connectionRef.current.getSignaturesForAddress(
             new PublicKey(mint),
-            { limit: 3 } // Reduced to 3 for rate limits
+            { limit: 3 }
           );
 
           const newSignatures = signatures.filter(sig => !signaturesSeen.current.has(sig.signature));
-          
+
           if (newSignatures.length > 0) {
-            console.log(`🆕 Found ${newSignatures.length} new ${symbol} transactions`);
-            
-            // Mark as seen
             newSignatures.forEach(sig => signaturesSeen.current.add(sig.signature));
 
-            // Process transactions one by one with delays
             for (let i = 0; i < newSignatures.length; i++) {
               try {
                 const tx = await connectionRef.current!.getParsedTransaction(newSignatures[i].signature, {
@@ -174,20 +234,17 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
                 });
 
                 if (tx) {
-                  const { dex, confidence } = detectDEX(tx);
+                  const dex = detectDEX(tx);
                   const whaleTx = parseTransaction(tx, newSignatures[i].signature, symbol);
-                  
+
                   if (whaleTx) {
                     whaleTx.dex = dex;
-                    whaleTx.confidence = confidence;
                     allTransactions.push(whaleTx);
-                    console.log(`🐋 ${symbol} whale: $${whaleTx.usdValue.toFixed(0)} on ${dex}`);
                   }
                 }
 
-                // Add delay between transaction fetches
                 if (i < newSignatures.length - 1) {
-                  await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
+                  await new Promise(resolve => setTimeout(resolve, 200));
                 }
               } catch (error) {
                 console.warn(`Failed to fetch transaction:`, error);
@@ -195,263 +252,367 @@ const WhaleMonitor: React.FC<WhaleMonitorProps> = ({ btcPrice }) => {
             }
           }
 
-          // Add delay between different tokens
           const tokenEntries = Object.entries(BTC_TOKEN_MINTS);
           const currentIndex = tokenEntries.findIndex(([s]) => s === symbol);
           if (currentIndex < tokenEntries.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay between tokens
+            await new Promise(resolve => setTimeout(resolve, 500));
           }
-          
+
         } catch (error) {
           console.error(`Error monitoring ${symbol}:`, error);
         }
       }
 
       if (allTransactions.length > 0) {
-        console.log(`🎉 Total whales found: ${allTransactions.length}`);
-        setDebugInfo(`Found ${allTransactions.length} whale transactions!`);
-        
-        // Add new transactions to persistent list instead of replacing
-        setPersistentTransactions(prev => {
+        setTransactions(prev => {
           const combined = [...allTransactions, ...prev];
-          // Keep transactions for 30 seconds
           const thirtySecondsAgo = Date.now() - (30 * 1000);
           const filtered = combined.filter(tx => tx.timestamp > thirtySecondsAgo);
-          return filtered.slice(0, 7); // Still limit to 7 max
+          return filtered.slice(0, 5);
         });
-        
-        // Update display transactions
-        setTransactions(allTransactions.slice(0, 7));
-      } else {
-        setDebugInfo('No new whale activity detected');
-        // Don't clear transactions - keep showing persistent ones
       }
 
     } catch (error) {
       console.error('Error in monitoring:', error);
-      setDebugInfo(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }, [parseTransaction, detectDEX]);
 
-  // Main monitoring loop with slower interval
+  // Update market stats for all transactions
+  useEffect(() => {
+    transactions.forEach(tx => {
+      const key = `${tx.signature}-market`;
+      if (!statsProcessed.current.has(key) && tx.dex) {
+        setMarketStats(prev => {
+          const newStats = {
+            ...prev,
+            dexCounts: {
+              ...prev.dexCounts,
+              [tx.dex!]: (prev.dexCounts[tx.dex!] || 0) + 1
+            },
+            totalTx: prev.totalTx + 1,
+            totalVolume: prev.totalVolume + tx.usdValue
+          };
+          localStorage.setItem('whaleMarketStats', JSON.stringify(newStats));
+          return newStats;
+        });
+        statsProcessed.current.add(key);
+      }
+    });
+  }, [transactions]);
+
+  // Track stats for tracked wallets when transactions update
+  useEffect(() => {
+    transactions.forEach(tx => {
+      const key = `${tx.signature}-${tx.fromFull}`;
+      if (!statsProcessed.current.has(key) && trackedWallets.has(tx.fromFull) && tx.dex) {
+        updateWalletStats(tx.fromFull, tx.dex, tx.timestamp);
+        statsProcessed.current.add(key);
+      }
+    });
+  }, [transactions, trackedWallets, updateWalletStats]);
+
   useEffect(() => {
     if (!isMonitoring) return;
 
-    console.log('🚀 Starting rate-limited whale monitoring');
-    monitorAllTokens(); // Run immediately
+    monitorAllTokens();
 
     const interval = setInterval(async () => {
-      setLastCheck(new Date());
       await monitorAllTokens();
-    }, 15000); // Check every 15 seconds (slower for rate limits)
+    }, 15000);
 
     return () => clearInterval(interval);
   }, [isMonitoring, monitorAllTokens]);
 
-  // Use persistent transactions for display (they last longer)
-  const displayTransactions = persistentTransactions.length > 0 ? persistentTransactions : transactions;
-
   const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
+    const diff = Date.now() - timestamp;
     const minutes = Math.floor(diff / 60000);
-    
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  };
 
-  const formatAmount = (amount: number) => {
-    return amount.toFixed(4);
+    if (minutes < 1) return 'Now';
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
   };
 
   const formatUSD = (value: number) => {
     if (value >= 1000000) return `$${(value / 1000000).toFixed(2)}M`;
-    if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`;
+    if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
     return `$${value.toFixed(0)}`;
+  };
+
+  const isTracked = (wallet: string) => trackedWallets.has(wallet);
+  const isTrackedTransaction = (tx: WhaleTransaction) =>
+    isTracked(tx.fromFull) || isTracked(tx.toFull);
+
+  const getDexColor = (dex: string) => {
+    const colors: Record<string, string> = {
+      'Jupiter': '#FF4040',
+      'Raydium': '#9945FF',
+      'Orca': '#3B82F6',
+      'Meteora': '#10B981',
+      'Transfer': '#6B7280'
+    };
+    return colors[dex] || '#6B7280';
+  };
+
+  const trackedWalletsList = Array.from(walletStats.values())
+    .filter(stat => trackedWallets.has(stat.wallet))
+    .sort((a, b) => b.totalTx - a.totalTx);
+
+  const resetMarketStats = () => {
+    setMarketStats({
+      dexCounts: {},
+      totalTx: 0,
+      totalVolume: 0
+    });
+    localStorage.removeItem('whaleMarketStats');
+    // Clear only market-related stats from processed
+    const newProcessed = new Set<string>();
+    statsProcessed.current.forEach(key => {
+      if (!key.endsWith('-market')) {
+        newProcessed.add(key);
+      }
+    });
+    statsProcessed.current = newProcessed;
   };
 
   return (
     <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Waves className="w-6 h-6 text-[#FF4040]" />
+          <Waves className="w-5 h-5 text-[#FF4040]" />
           <div>
             <h3 className="text-lg font-semibold">Whale Activity</h3>
-            <p className="text-xs text-[#A0A0A0]">Large BTC transactions on Solana • Rate limited for RPC</p>
+            <p className="text-xs text-[#A0A0A0]">
+              ${(WHALE_THRESHOLD / 1000).toFixed(0)}K+ BTC trades
+              {trackedWallets.size > 0 && ` • ${trackedWallets.size} tracked`}
+            </p>
           </div>
         </div>
-        <button
-          onClick={() => setIsMonitoring(!isMonitoring)}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            isMonitoring
-              ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30'
-              : 'bg-[#FF4040]/20 text-[#FF4040] hover:bg-[#FF4040]/30'
-          }`}
-        >
-          {isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}
-        </button>
+        <div className="flex items-center gap-2">
+          {isMonitoring && (
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+          )}
+          <button
+            onClick={() => setIsMonitoring(!isMonitoring)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              isMonitoring
+                ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30'
+                : 'bg-[#FF4040]/20 text-[#FF4040] hover:bg-[#FF4040]/30'
+            }`}
+          >
+            {isMonitoring ? 'Stop' : 'Start'}
+          </button>
+        </div>
       </div>
 
-      {/* Status */}
-      {isMonitoring && (
-        <div className="flex items-center gap-2 mb-4 text-xs text-[#A0A0A0]">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span>Live monitoring • Last check: {formatTime(lastCheck.getTime())} • 15s intervals</span>
+      {/* Market Heatmap */}
+      {marketStats.totalTx > 0 && (
+        <div className="mb-4 p-4 bg-[#161616] rounded-lg border border-[#1C1C1C]">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold flex items-center gap-2">
+              <Waves className="w-4 h-4 text-[#FF4040]" />
+              Market DEX Activity
+            </h4>
+            <button
+              onClick={resetMarketStats}
+              className="text-xs text-[#666] hover:text-[#FF4040] transition-colors"
+              title="Reset market stats"
+            >
+              Reset
+            </button>
+          </div>
+          <div className="space-y-2">
+            <div className="flex gap-1 h-3">
+              {Object.entries(marketStats.dexCounts)
+                .sort(([, a], [, b]) => b - a)
+                .map(([dex, count]) => {
+                  const percentage = (count / marketStats.totalTx) * 100;
+                  return (
+                    <div
+                      key={dex}
+                      className="rounded-sm transition-all hover:opacity-80 cursor-pointer"
+                      style={{
+                        width: `${percentage}%`,
+                        backgroundColor: getDexColor(dex)
+                      }}
+                      title={`${dex}: ${count} tx (${percentage.toFixed(1)}%)`}
+                    />
+                  );
+                })}
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs">
+              {Object.entries(marketStats.dexCounts)
+                .sort(([, a], [, b]) => b - a)
+                .map(([dex, count]) => (
+                  <div key={dex} className="flex items-center gap-1.5">
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: getDexColor(dex) }}
+                    />
+                    <span className="text-[#A0A0A0]">{dex}</span>
+                    <span className="font-semibold">{count}</span>
+                    <span className="text-[#666]">
+                      ({((count / marketStats.totalTx) * 100).toFixed(0)}%)
+                    </span>
+                  </div>
+                ))}
+            </div>
+            <div className="pt-2 border-t border-[#1C1C1C] flex items-center justify-between text-xs">
+              <span className="text-[#666]">Total: {marketStats.totalTx} whale transactions</span>
+              <span className="text-[#666]">
+                Vol: ${marketStats.totalVolume >= 1000000
+                  ? `${(marketStats.totalVolume / 1000000).toFixed(1)}M`
+                  : `${(marketStats.totalVolume / 1000).toFixed(0)}K`}
+              </span>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Debug Info */}
-      {isMonitoring && (
-        <div className="mb-4 p-2 bg-[#1a1a1a] rounded text-xs text-green-400 font-mono">
-          {debugInfo}
+      {/* Tracked Wallet Heatmap */}
+      {trackedWalletsList.length > 0 && (
+        <div className="mb-6 p-4 bg-[#161616] rounded-lg border border-[#1C1C1C]">
+          <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Star className="w-4 h-4 text-yellow-500 fill-current" />
+            Tracked Wallet DEX Preferences
+          </h4>
+          <div className="space-y-3">
+            {trackedWalletsList.map(stat => {
+              const dexes = Object.keys(stat.dexCounts);
+              return (
+                <div key={stat.wallet} className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <code className="text-xs text-[#FF4040] font-mono">{stat.wallet.slice(0, 8)}...{stat.wallet.slice(-8)}</code>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[#666]">{stat.totalTx} tx</span>
+                      <button
+                        onClick={() => toggleTracking(stat.wallet)}
+                        className="text-yellow-500 hover:text-yellow-400 transition-colors"
+                        title="Untrack wallet"
+                      >
+                        <Star className="w-3.5 h-3.5 fill-current" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 h-2">
+                    {dexes.map(dex => {
+                      const percentage = (stat.dexCounts[dex] / stat.totalTx) * 100;
+                      return (
+                        <div
+                          key={dex}
+                          className="rounded-sm transition-all hover:opacity-80"
+                          style={{
+                            width: `${percentage}%`,
+                            backgroundColor: getDexColor(dex)
+                          }}
+                          title={`${dex}: ${stat.dexCounts[dex]} tx (${percentage.toFixed(0)}%)`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {dexes.map(dex => (
+                      <div key={dex} className="flex items-center gap-1">
+                        <div
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: getDexColor(dex) }}
+                        />
+                        <span className="text-[#A0A0A0]">{dex}</span>
+                        <span className="text-[#666]">{stat.dexCounts[dex]}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* Token Info */}
-      <div className="mb-4 p-3 bg-[#161616] rounded-lg">
-        <p className="text-xs text-[#A0A0A0]">
-          ✅ Rate Limited: Checking <span className="text-[#FF4040] font-semibold">${(WHALE_THRESHOLD / 1000).toFixed(0)}K+</span> trades every 15s • Keep for 30s
-          <br />
-          <span className="text-green-400 font-mono text-[10px]">
-            wBTC: 3NZ9... • zBTC: zBTC... • cbBTC: cbbt...
-          </span>
-        </p>
-      </div>
-
-      {/* Transaction List */}
-      <div className="space-y-3">
-        {displayTransactions.length === 0 ? (
+      <div className="space-y-2">
+        {transactions.length === 0 ? (
           <div className="text-center py-8 text-[#A0A0A0]">
-            {isMonitoring ? (
-              <>
-                <Waves className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">Monitoring with rate limits...</p>
-                <p className="text-xs mt-1">Checking every 15 seconds for whale activity</p>
-                <p className="text-xs mt-2 text-green-400">Check console for debug logs</p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm">Click "Start Monitoring" to track whale transactions</p>
-              </>
-            )}
+            <Waves className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">{isMonitoring ? 'Monitoring...' : 'Start to track whale trades'}</p>
           </div>
         ) : (
-          displayTransactions.map((tx) => (
-            <div
-              key={tx.signature}
-              className="p-4 bg-[#161616] rounded-xl border border-[#1C1C1C] hover:border-[#FF4040]/30 transition-colors"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      tx.type === 'buy'
-                        ? 'bg-green-500/20'
-                        : tx.type === 'sell'
-                        ? 'bg-red-500/20'
-                        : 'bg-blue-500/20'
-                    }`}
-                  >
-                    {tx.type === 'buy' ? (
-                      <TrendingUp className="w-5 h-5 text-green-500" />
-                    ) : tx.type === 'sell' ? (
-                      <TrendingDown className="w-5 h-5 text-red-500" />
-                    ) : (
-                      <Waves className="w-5 h-5 text-blue-500" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-sm font-semibold ${
-                          tx.type === 'buy'
-                            ? 'text-green-500'
-                            : tx.type === 'sell'
-                            ? 'text-red-500'
-                            : 'text-blue-500'
-                        }`}
-                      >
-                        {tx.type.toUpperCase()}
-                      </span>
-                      <span className="text-xs text-[#A0A0A0]">•</span>
-                      <span className="text-xs text-[#A0A0A0]">{tx.token}</span>
-                      {tx.dex && (
-                        <>
-                          <span className="text-xs text-[#A0A0A0]">•</span>
-                          <span className={`text-xs font-medium ${
-                            tx.dex === 'Jupiter' ? 'text-[#FF4040]' :
-                            tx.dex.includes('Raydium') ? 'text-purple-400' :
-                            tx.dex === 'Orca' ? 'text-blue-400' :
-                            tx.dex === 'Meteora' ? 'text-green-400' :
-                            'text-gray-400'
-                          }`}>{tx.dex}</span>
-                        </>
-                      )}
-                      {tx.confidence && (
-                        <>
-                          <span className="text-xs text-[#A0A0A0]">•</span>
-                          <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                            tx.confidence === 'HIGH' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
-                          }`}>
-                            {tx.confidence}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Clock className="w-3 h-3 text-[#A0A0A0]" />
-                      <span className="text-xs text-[#A0A0A0]">{formatTime(tx.timestamp)}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-lg font-bold text-white">
-                    {formatUSD(tx.usdValue)}
-                  </div>
-                  <div className="text-xs text-[#A0A0A0]">
-                    {formatAmount(tx.amount)} BTC
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="text-[#A0A0A0]">From:</span>
-                  <code className="text-[#FF4040] font-mono">{tx.from}</code>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[#A0A0A0]">To:</span>
-                  <code className="text-[#FF4040] font-mono">{tx.to}</code>
-                </div>
-              </div>
-
-              <a
-                href={`https://solscan.io/tx/${tx.signature}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 mt-3 pt-3 border-t border-[#1C1C1C] text-xs text-[#A0A0A0] hover:text-[#FF4040] transition-colors"
+          transactions.map((tx) => {
+            const tracked = isTrackedTransaction(tx);
+            return (
+              <div
+                key={tx.signature}
+                className={`p-3 bg-[#161616] rounded-lg border transition-all ${
+                  tracked
+                    ? 'border-yellow-500/50 bg-yellow-500/5'
+                    : 'border-[#1C1C1C] hover:border-[#FF4040]/30'
+                }`}
               >
-                View on Solscan
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-          ))
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        tx.type === 'buy' ? 'bg-green-500/20' : 'bg-red-500/20'
+                      }`}
+                    >
+                      {tx.type === 'buy' ? (
+                        <TrendingUp className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <TrendingDown className="w-4 h-4 text-red-500" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-xs font-semibold ${tx.type === 'buy' ? 'text-green-500' : 'text-red-500'}`}>
+                          {tx.type.toUpperCase()}
+                        </span>
+                        <span className="text-xs text-[#666]">•</span>
+                        <span className="text-xs text-[#A0A0A0]">{tx.token}</span>
+                        {tx.dex && (
+                          <>
+                            <span className="text-xs text-[#666]">•</span>
+                            <span className="text-xs text-[#FF4040]">{tx.dex}</span>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-xs text-[#666] mt-0.5">{formatTime(tx.timestamp)}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-base font-bold">{formatUSD(tx.usdValue)}</div>
+                    <div className="text-xs text-[#666]">{tx.amount.toFixed(3)} BTC</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-2 border-t border-[#1C1C1C]">
+                  <div className="flex items-center gap-2">
+                    <code className="text-[#FF4040] font-mono">{tx.from}</code>
+                    <button
+                      onClick={() => toggleTracking(tx.fromFull)}
+                      className={`p-1 rounded transition-colors ${
+                        isTracked(tx.fromFull)
+                          ? 'text-yellow-500 hover:text-yellow-400'
+                          : 'text-[#666] hover:text-[#FF4040]'
+                      }`}
+                      title={isTracked(tx.fromFull) ? 'Untrack wallet' : 'Track wallet'}
+                    >
+                      {isTracked(tx.fromFull) ? <Star className="w-3.5 h-3.5 fill-current" /> : <StarOff className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <a
+                    href={`https://solscan.io/tx/${tx.signature}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#666] hover:text-[#FF4040] transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
-
-      {/* Persistent Notice */}
-      {displayTransactions.length > 0 && (
-        <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-          <p className="text-xs text-blue-400">
-            <span className="font-bold">⏰ Persistent:</span> Transactions stay visible for 30 seconds. Rate limited every 15s.
-          </p>
-        </div>
-      )}
     </div>
   );
 };

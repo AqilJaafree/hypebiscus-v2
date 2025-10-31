@@ -688,10 +688,6 @@ const WalletPage = () => {
           "https://api.mainnet-beta.solana.com"
       );
 
-      // Test the connection
-      const version = await connection.getVersion();
-      console.log("Solana RPC version:", version);
-
       // Continue with your logic...
       const userPositions = await DLMM.getAllLbPairPositionsByUser(
         connection,

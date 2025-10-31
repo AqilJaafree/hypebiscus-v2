@@ -29,9 +29,6 @@ export async function POST(request: Request) {
       );
     }
     
-    // Log that we received a request (without sensitive data)
-    console.log('API route: Received chat request from IP:', clientIP.replace(/\d+$/, 'xxx'));
-    
     // Check if API key is configured
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -78,12 +75,6 @@ export async function POST(request: Request) {
 
     const { messages, poolData, portfolioStyle } = validatedData;
 
-    console.log('API route: Valid request', { 
-      messagesCount: messages.length,
-      hasPoolData: !!poolData,
-      portfolioStyle: portfolioStyle || 'none'
-    });
-
     // Format messages for Anthropic API
     const formattedMessages = messages.map(msg => ({
       role: msg.role,
@@ -98,8 +89,6 @@ export async function POST(request: Request) {
       systemPrompt += " When analyzing liquidity pools, provide detailed yet concise assessments of risks, benefits, and opportunities. Format your analysis in bullet points, with each key point on a new line. Separate your analysis into two clear sections: 1) Why this pool is suitable, and 2) Risk considerations. For each bullet point, focus on one specific advantage or risk factor. Avoid introductory phrases like 'Analyzing this pool...' or 'Key metrics to consider...' at the start of bullet points. Tailor your analysis to the user's selected portfolio style, explaining why specific parameters (like bin steps) are appropriate for their risk tolerance. Focus on bin step relevance, risk level, potential returns, and key metrics. End your analysis with 1-2 thought-provoking questions about their investment goals or risk preferences."
     }
 
-    console.log('API route: Calling Anthropic API with streaming');
-    
     // Setup for streaming response
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

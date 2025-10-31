@@ -122,13 +122,7 @@ export async function fetchMessage(
   onStreamUpdate?: (chunk: string) => void
 ): Promise<string> {
   const payload = createRequestPayload(messages, poolData, portfolioStyle);
-  
-  console.log('Sending message to API', {
-    messageCount: payload.messages.length,
-    hasPoolData: !!payload.poolData,
-    portfolioStyle: payload.portfolioStyle || 'none'
-  });
-  
+
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
@@ -137,8 +131,6 @@ export async function fetchMessage(
       },
       body: JSON.stringify(payload),
     });
-
-    console.log('API response status:', response.status);
 
     if (!response.ok) {
       await handleAPIError(response);
@@ -151,8 +143,7 @@ export async function fetchMessage(
 
     // Handle traditional JSON response (fallback)
     const data = await response.json();
-    console.log('Received data from API:', data);
-    
+
     return data.message || '';
   } catch (error) {
     if (error instanceof ChatAPIError) {

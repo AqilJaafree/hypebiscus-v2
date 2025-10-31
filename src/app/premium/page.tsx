@@ -158,6 +158,7 @@ const PremiumPage = () => {
         return newPrices.slice(-60);
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [realtimePrice, updateCount]);
 
   useEffect(() => {
@@ -275,30 +276,30 @@ const PremiumPage = () => {
   }, [historicalPrices]);
 
   const getRSIStatus = (rsi: number): { status: string; color: string; description: string } => {
-    if (rsi <= 30) return { 
-      status: 'OVERSOLD', 
-      color: 'text-green-500', 
-      description: 'Strong buying opportunity - historically undervalued' 
+    if (rsi <= 30) return {
+      status: 'OVERSOLD',
+      color: 'text-green-500',
+      description: 'Strong buy signal'
     };
-    if (rsi <= 40) return { 
-      status: 'APPROACHING OVERSOLD', 
-      color: 'text-green-400', 
-      description: 'Potential accumulation zone' 
+    if (rsi <= 40) return {
+      status: 'APPROACHING OVERSOLD',
+      color: 'text-green-400',
+      description: 'Accumulation zone'
     };
-    if (rsi <= 60) return { 
-      status: 'NEUTRAL', 
-      color: 'text-gray-400', 
-      description: 'Market in equilibrium - no extreme signals' 
+    if (rsi <= 60) return {
+      status: 'NEUTRAL',
+      color: 'text-gray-400',
+      description: 'Balanced market'
     };
-    if (rsi <= 70) return { 
-      status: 'APPROACHING OVERBOUGHT', 
-      color: 'text-orange-400', 
-      description: 'Consider taking profits or securing gains' 
+    if (rsi <= 70) return {
+      status: 'APPROACHING OVERBOUGHT',
+      color: 'text-orange-400',
+      description: 'Consider profit-taking'
     };
-    return { 
-      status: 'OVERBOUGHT', 
-      color: 'text-red-500', 
-      description: 'High risk of correction - exercise caution' 
+    return {
+      status: 'OVERBOUGHT',
+      color: 'text-red-500',
+      description: 'High correction risk'
     };
   };
 
@@ -318,7 +319,7 @@ const PremiumPage = () => {
         <div className="w-full text-white flex items-center justify-center py-20">
           <div className="flex flex-col items-center gap-4">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#FF4040]"></div>
-            <p className="text-[#A0A0A0]">Loading market data...</p>
+            <p className="text-[#A0A0A0]">Loading...</p>
           </div>
         </div>
       </PageTemplate>
@@ -336,7 +337,7 @@ const PremiumPage = () => {
               onClick={fetchBTCData}
               className="px-4 py-2 bg-[#FF4040] hover:bg-[#FF4040]/80 rounded-lg transition-colors"
             >
-              Try Again
+              Retry
             </button>
           </div>
         </div>
@@ -355,7 +356,7 @@ const PremiumPage = () => {
           <div className="mb-8">
             <div className="flex items-center justify-between mb-2">
               <h1 className="text-3xl md:text-4xl font-bold text-[#FF4040]">
-                Bitcoin Real-Time Analysis
+                BTC Analytics
               </h1>
               <button
                 onClick={fetchBTCData}
@@ -367,16 +368,14 @@ const PremiumPage = () => {
               </button>
             </div>
             <div className="flex items-center gap-2 text-sm text-[#A0A0A0]">
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></div>
-                <span>{isConnected ? 'Live Feed Active' : 'Reconnecting...'}</span>
-              </div>
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></div>
+              <span>{isConnected ? 'Live' : 'Reconnecting'}</span>
               <span>•</span>
-              <span>Last updated: {lastUpdate.toLocaleTimeString()}</span>
+              <span>{lastUpdate.toLocaleTimeString()}</span>
               {updateCount > 0 && (
                 <>
                   <span>•</span>
-                  <span className="text-[#FF4040]">{updateCount} live updates</span>
+                  <span className="text-[#FF4040]">{updateCount} updates</span>
                 </>
               )}
             </div>
@@ -386,7 +385,9 @@ const PremiumPage = () => {
             <div className="md:col-span-2 bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <h2 className="text-lg text-[#A0A0A0] mb-2">Bitcoin Price {isConnected && <span className="text-xs text-green-500">(Live)</span>}</h2>
+                  <h2 className="text-lg text-[#A0A0A0] mb-2">
+                    BTC {isConnected && <span className="text-xs text-green-500">(Live)</span>}
+                  </h2>
                   <div className="flex items-baseline gap-3">
                     <span className="text-5xl font-bold">
                       ${btcData?.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -399,7 +400,7 @@ const PremiumPage = () => {
                     </div>
                   </div>
                   <p className="text-sm text-[#A0A0A0] mt-1">
-                    ${btcData?.change24hAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} (24h)
+                    ${btcData?.change24hAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div className={`px-4 py-2 rounded-lg ${trendDirection === 'BULLISH' ? 'bg-green-500/20 text-green-500' : trendDirection === 'BEARISH' ? 'bg-red-500/20 text-red-500' : 'bg-gray-500/20 text-gray-400'}`}>
@@ -456,13 +457,13 @@ const PremiumPage = () => {
                 ${movingAverages.sma20?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || 'N/A'}
               </p>
               <div className="w-full bg-[#0f0f0f] rounded-full h-2 mb-2">
-                <div 
+                <div
                   className={`h-2 rounded-full ${btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? 'bg-green-500' : 'bg-red-500'}`}
                   style={{ width: '100%' }}
                 ></div>
               </div>
               <p className="text-xs text-[#A0A0A0]">
-                {btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? 'Price above MA' : 'Price below MA'}
+                {btcData && movingAverages.sma20 && btcData.price > movingAverages.sma20 ? 'Above' : 'Below'}
               </p>
             </div>
 
@@ -475,13 +476,13 @@ const PremiumPage = () => {
                 ${movingAverages.sma50?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || 'N/A'}
               </p>
               <div className="w-full bg-[#0f0f0f] rounded-full h-2 mb-2">
-                <div 
+                <div
                   className={`h-2 rounded-full ${btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? 'bg-green-500' : 'bg-red-500'}`}
                   style={{ width: '100%' }}
                 ></div>
               </div>
               <p className="text-xs text-[#A0A0A0]">
-                {btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? 'Price above MA' : 'Price below MA'}
+                {btcData && movingAverages.sma50 && btcData.price > movingAverages.sma50 ? 'Above' : 'Below'}
               </p>
             </div>
 
@@ -500,9 +501,9 @@ const PremiumPage = () => {
                 ></div>
               </div>
               <p className="text-xs text-[#A0A0A0]">
-                {movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50 
-                  ? 'Bullish trend confirmed'
-                  : 'Bearish trend confirmed'
+                {movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50
+                  ? 'Bullish'
+                  : 'Bearish'
                 }
               </p>
             </div>
@@ -534,7 +535,7 @@ const PremiumPage = () => {
                 ></div>
               </div>
               <p className="text-xs text-[#A0A0A0]">
-                Based on RSI analysis
+                RSI-based
               </p>
             </div>
           </div>
@@ -574,11 +575,11 @@ const PremiumPage = () => {
                 </p>
               </div>
               <p className="text-sm text-[#A0A0A0]">
-                {macdSignal === 'BULLISH_CROSSOVER' && 'Strong buy signal - MACD crossed above signal line'}
-                {macdSignal === 'BEARISH_CROSSOVER' && 'Strong sell signal - MACD crossed below signal line'}
-                {macdSignal === 'BULLISH' && 'Momentum remains positive'}
-                {macdSignal === 'BEARISH' && 'Momentum remains negative'}
-                {macdSignal === 'NEUTRAL' && 'Waiting for clear signal'}
+                {macdSignal === 'BULLISH_CROSSOVER' && 'Strong buy - MACD crossed above signal'}
+                {macdSignal === 'BEARISH_CROSSOVER' && 'Strong sell - MACD crossed below signal'}
+                {macdSignal === 'BULLISH' && 'Positive momentum'}
+                {macdSignal === 'BEARISH' && 'Negative momentum'}
+                {macdSignal === 'NEUTRAL' && 'Neutral momentum'}
               </p>
             </div>
           </div>
@@ -609,8 +610,8 @@ const PremiumPage = () => {
                     <p className="font-medium">Trend: {trendDirection}</p>
                     <p className="text-sm text-[#A0A0A0] mt-1">
                       {movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50
-                        ? 'Golden Cross active - medium-term bullish trend confirmed.'
-                        : 'Death Cross present - medium-term bearish pressure expected.'
+                        ? 'Golden Cross - bullish'
+                        : 'Death Cross - bearish'
                       }
                     </p>
                   </div>
@@ -621,10 +622,7 @@ const PremiumPage = () => {
                   <div className="flex-1">
                     <p className="font-medium">Volatility: {volatility.toFixed(2)}%</p>
                     <p className="text-sm text-[#A0A0A0] mt-1">
-                      {volatility > 5 ? 'High volatility detected' : volatility > 3 ? 'Moderate volatility' : 'Low volatility environment'}. 24h trading volume: ${((btcData?.volume24h || 0) / 1000000000).toFixed(2)}B - {
-                        (btcData?.volume24h || 0) > 200000000000 ? 'Exceptionally high' : 
-                        (btcData?.volume24h || 0) > 100000000000 ? 'High' : 'Moderate'
-                      } activity
+                      {volatility > 5 ? 'High' : volatility > 3 ? 'Moderate' : 'Low'} • Vol: ${((btcData?.volume24h || 0) / 1000000000).toFixed(2)}B
                     </p>
                   </div>
                 </div>
@@ -634,13 +632,13 @@ const PremiumPage = () => {
                 <div className="flex items-start gap-3">
                   <div className={`w-2 h-2 rounded-full mt-2 ${getMACDColor(macdSignal).replace('text-', 'bg-')}`}></div>
                   <div className="flex-1">
-                    <p className="font-medium">MACD Signal: {macdSignal.replace('_', ' ')}</p>
+                    <p className="font-medium">MACD: {macdSignal.replace('_', ' ')}</p>
                     <p className="text-sm text-[#A0A0A0] mt-1">
-                      {macdSignal === 'BULLISH_CROSSOVER' && 'Strong buy signal - MACD crossed above signal line'}
-                      {macdSignal === 'BEARISH_CROSSOVER' && 'Strong sell signal - MACD crossed below signal line'}
-                      {macdSignal === 'BULLISH' && 'Momentum remains positive'}
-                      {macdSignal === 'BEARISH' && 'Momentum remains negative'}
-                      {macdSignal === 'NEUTRAL' && 'Waiting for clear signal'}
+                      {macdSignal === 'BULLISH_CROSSOVER' && 'Strong buy signal'}
+                      {macdSignal === 'BEARISH_CROSSOVER' && 'Strong sell signal'}
+                      {macdSignal === 'BULLISH' && 'Positive momentum'}
+                      {macdSignal === 'BEARISH' && 'Negative momentum'}
+                      {macdSignal === 'NEUTRAL' && 'Neutral momentum'}
                     </p>
                   </div>
                 </div>
@@ -648,9 +646,9 @@ const PremiumPage = () => {
                 <div className="flex items-start gap-3">
                   <div className="w-2 h-2 rounded-full mt-2 bg-orange-400"></div>
                   <div className="flex-1">
-                    <p className="font-medium">Supply Metrics</p>
+                    <p className="font-medium">Supply</p>
                     <p className="text-sm text-[#A0A0A0] mt-1">
-                      {supplyPercentage.toFixed(2)}% mined ({btcData?.circulatingSupply.toLocaleString()} of {btcData?.maxSupply.toLocaleString()} BTC)
+                      {supplyPercentage.toFixed(2)}% mined • {btcData?.circulatingSupply.toLocaleString()}M BTC
                     </p>
                   </div>
                 </div>
@@ -658,19 +656,9 @@ const PremiumPage = () => {
                 <div className="flex items-start gap-3">
                   <div className="w-2 h-2 rounded-full mt-2 bg-cyan-400"></div>
                   <div className="flex-1">
-                    <p className="font-medium">Market Dominance</p>
+                    <p className="font-medium">Market Cap</p>
                     <p className="text-sm text-[#A0A0A0] mt-1">
-                      ${((btcData?.marketCap || 0) / 1000000000000).toFixed(2)}T market cap - Rank #1
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-2 h-2 rounded-full mt-2 bg-purple-400"></div>
-                  <div className="flex-1">
-                    <p className="font-medium">24h Price Range</p>
-                    <p className="text-sm text-[#A0A0A0] mt-1">
-                      ${btcData?.low24h.toLocaleString(undefined, { maximumFractionDigits: 2 })} - ${btcData?.high24h.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      ${((btcData?.marketCap || 0) / 1000000000000).toFixed(2)}T
                     </p>
                   </div>
                 </div>
@@ -681,44 +669,21 @@ const PremiumPage = () => {
           <div className="bg-[#0f0f0f] border border-[#1C1C1C] rounded-2xl p-6 mb-6">
             <div className="flex items-center gap-2 mb-6">
               <DollarSign className="w-5 h-5 text-[#FF4040]" />
-              <h3 className="text-lg font-semibold">Trading Insights & Recommendations</h3>
+              <h3 className="text-lg font-semibold">Trading Signals</h3>
             </div>
 
             <div className="space-y-4">
               <div className="flex items-start gap-3">
                 <span className="text-[#FF4040] font-bold">•</span>
                 <p className="text-sm text-[#A0A0A0]">
-                  <span className="text-white font-medium">For Short-Term Traders:</span> {
-                    rsiStatus?.status === 'OVERSOLD' ? 'Strong RSI oversold signal - potential bounce opportunity within 24-48h.' :
-                    rsiStatus?.status === 'OVERBOUGHT' ? 'RSI overbought - consider profit-taking or wait for retracement.' :
-                    'Monitor for RSI extremes before entering positions.'
-                  } {
+                  <span className="text-white font-medium">Short-Term:</span> {
+                    rsiStatus?.status === 'OVERSOLD' ? 'RSI oversold - potential bounce' :
+                    rsiStatus?.status === 'OVERBOUGHT' ? 'RSI overbought - consider profit-taking' :
+                    'Monitor RSI extremes'
+                  } • {
                     movingAverages.sma20 && movingAverages.sma50 && movingAverages.sma20 > movingAverages.sma50
-                      ? 'Price trading above 20-day MA supports upside.'
-                      : 'Price below 20-day MA suggests downside risk.'
-                  }
-                </p>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <span className="text-[#FF4040] font-bold">•</span>
-                <p className="text-sm text-[#A0A0A0]">
-                  <span className="text-white font-medium">For Liquidity Providers:</span> {
-                    volatility > 5 ? 'High volatility detected. Widen spreads and monitor impermanent loss closely.' :
-                    volatility > 3 ? 'Moderate volatility. Standard LP strategies applicable.' :
-                    'Low volatility environment. Tighter spreads possible for better returns.'
-                  }
-                </p>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <span className="text-[#FF4040] font-bold">•</span>
-                <p className="text-sm text-[#A0A0A0]">
-                  <span className="text-white font-medium">MACD Momentum:</span> {
-                    macdSignal === 'BULLISH_CROSSOVER' ? 'Fresh bullish crossover - strong buy signal for momentum traders.' :
-                    macdSignal === 'BEARISH_CROSSOVER' ? 'Fresh bearish crossover - consider risk management strategies.' :
-                    movingAverages.macdHistogram && movingAverages.macdHistogram > 0 ? 'Positive momentum building - trend likely to continue.' :
-                    'Negative momentum - wait for histogram reversal before entering.'
+                      ? 'Above 20-MA'
+                      : 'Below 20-MA'
                   }
                 </p>
               </div>
@@ -726,12 +691,35 @@ const PremiumPage = () => {
               <div className="flex items-start gap-3">
                 <span className="text-[#FF4040] font-bold">•</span>
                 <p className="text-sm text-[#A0A0A0]">
-                  <span className="text-white font-medium">For Long-Term Holders:</span> {
-                    btcData && btcData.change24h < -5 ? 'Significant dip presents potential DCA opportunity.' :
-                    marketSentiment === 'EXTREME_FEAR' ? 'Fear in the market often precedes recovery. Consider accumulation.' :
-                    marketSentiment === 'EXTREME_GREED' ? 'Extreme greed suggests overheated market. HODL but be prepared for corrections.' :
-                    'HODL strategy remains valid. Bitcoin fundamentals remain strong.'
-                  } With {supplyPercentage.toFixed(1)}% mined, scarcity dynamics support long-term value.
+                  <span className="text-white font-medium">Liquidity Providers:</span> {
+                    volatility > 5 ? 'High volatility - widen spreads, monitor IL' :
+                    volatility > 3 ? 'Moderate volatility - standard strategies' :
+                    'Low volatility - tighter spreads possible'
+                  }
+                </p>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <span className="text-[#FF4040] font-bold">•</span>
+                <p className="text-sm text-[#A0A0A0]">
+                  <span className="text-white font-medium">MACD:</span> {
+                    macdSignal === 'BULLISH_CROSSOVER' ? 'Bullish crossover - strong buy' :
+                    macdSignal === 'BEARISH_CROSSOVER' ? 'Bearish crossover - risk management' :
+                    movingAverages.macdHistogram && movingAverages.macdHistogram > 0 ? 'Positive momentum building' :
+                    'Negative momentum - wait for reversal'
+                  }
+                </p>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <span className="text-[#FF4040] font-bold">•</span>
+                <p className="text-sm text-[#A0A0A0]">
+                  <span className="text-white font-medium">Long-Term:</span> {
+                    btcData && btcData.change24h < -5 ? 'Dip - potential DCA opportunity' :
+                    marketSentiment === 'EXTREME_FEAR' ? 'Extreme fear - consider accumulation' :
+                    marketSentiment === 'EXTREME_GREED' ? 'Extreme greed - prepare for corrections' :
+                    'HODL strategy valid'
+                  } • {supplyPercentage.toFixed(1)}% mined
                 </p>
               </div>
             </div>
@@ -739,9 +727,7 @@ const PremiumPage = () => {
 
           <div className="mt-6 p-4 bg-[#161616] border border-[#1C1C1C] rounded-2xl">
             <p className="text-xs text-[#A0A0A0]">
-              <span className="font-bold text-white">Disclaimer:</span> This dashboard provides educational information based on technical indicators including RSI, Moving Averages, and MACD. Real-time price data is powered by Pyth Lazer on Magicblock ephemeral rollups. 
-              It is not financial advice. Cryptocurrency markets are highly volatile and unpredictable. Always conduct your own research (DYOR) and never invest more than you can afford to lose. 
-              Past performance does not guarantee future results. Technical indicators can produce false signals.
+              <span className="font-bold text-white">Disclaimer:</span> Educational information only. Not financial advice. Crypto markets are volatile. DYOR. Never invest more than you can afford to lose. Real-time data via Pyth Lazer on Magicblock.
             </p>
           </div>
 

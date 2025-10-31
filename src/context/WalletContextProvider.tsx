@@ -37,8 +37,6 @@ export const WalletContextProvider: FC<WalletContextProviderProps> = ({ children
   
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
-      console.log(`Using Solana network: ${network}`)
-      console.log(`Using RPC endpoint: ${endpoint.split('/').slice(0, 3).join('/')}/...`)
     }
   }, [network, endpoint])
   

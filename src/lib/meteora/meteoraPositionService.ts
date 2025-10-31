@@ -190,7 +190,6 @@ export class MeteoraPositionService {
       const now = Date.now();
       
       if (cached && (now - cached.timestamp) < CACHE_DURATION) {
-        console.log(`Using cached ${portfolioStyle} bin ranges for pool:`, poolAddress.substring(0, 8));
         return cached.ranges;
       }
 
@@ -198,12 +197,10 @@ export class MeteoraPositionService {
       const typedPool = pool as unknown as DLMMPool;
       const activeBin = await typedPool.getActiveBin();
       
-      console.log(`Creating smart ${portfolioStyle} bin ranges around active bin:`, activeBin.binId);
       
       // FIXED: Use portfolio-specific smart heuristics
       const existingRanges = this.createSmartBinRanges(activeBin.binId, maxRangeWidth, portfolioStyle);
       
-      console.log(`Generated ${existingRanges.length} smart ${portfolioStyle} bin ranges without RPC calls`);
       
       // Cache the results with portfolio style
       binRangeCache.set(cacheKey, {
@@ -466,20 +463,12 @@ export class MeteoraPositionService {
     existingBinRange: ExistingBinRange
   ): Promise<CreatePositionResult> {
     try {
-      console.log('Creating position with smart bin range (no RPC intensive calls):', {
-        poolAddress: params.poolAddress,
-        range: `${existingBinRange.minBinId} to ${existingBinRange.maxBinId}`,
-        estimatedBins: existingBinRange.existingBins.length,
-        strategyType: params.strategyType
-      });
-
       // Get simplified cost estimation
       const estimatedCost = await this.getSimplifiedCostEstimation(
         params.poolAddress,
         existingBinRange.existingBins.length
       );
 
-      console.log('Simplified cost estimation:', estimatedCost);
 
       // Validate user balance
       const estimatedSolForLiquidity = params.totalXAmount.toNumber() / Math.pow(10, 9);
@@ -493,7 +482,6 @@ export class MeteoraPositionService {
         throw new Error(balanceValidation.error || 'Insufficient balance');
       }
 
-      console.log('Balance validation passed:', balanceValidation);
 
       // Initialize pool and create position
       const pool = await this.initializePool(params.poolAddress);
@@ -518,25 +506,11 @@ export class MeteoraPositionService {
             params.strategyType
           );
 
-          console.log('Auto-calculated Y amount using smart bin range:', totalYAmount.toString());
         } catch (autoFillError) {
           console.warn('AutoFill failed, using provided or zero Y amount:', autoFillError);
           totalYAmount = params.totalYAmount || new BN(0);
         }
       }
-
-      // Create the position transaction using smart bin range
-      console.log('Creating position transaction with smart bin range:', {
-        positionPubKey: newPosition.publicKey.toString(),
-        user: params.userPublicKey.toString(),
-        totalXAmount: params.totalXAmount.toString(),
-        totalYAmount: totalYAmount.toString(),
-        strategy: {
-          maxBinId: existingBinRange.maxBinId,
-          minBinId: existingBinRange.minBinId,
-          strategyType: params.strategyType,
-        }
-      });
 
       const createPositionTx = await typedPool.initializePositionAndAddLiquidityByStrategy({
         positionPubKey: newPosition.publicKey,
@@ -550,7 +524,6 @@ export class MeteoraPositionService {
         },
       });
 
-      console.log('Position transaction created successfully using smart bin ranges');
 
       return {
         transaction: createPositionTx,
@@ -593,7 +566,6 @@ export class MeteoraPositionService {
       // Use the best existing range (first one, as they're sorted by popularity)
       const selectedRange = existingRanges[0];
       
-      console.log(`Creating one-sided position with ${portfolioStyle} smart range:`, selectedRange);
 
       // Get cost estimation
       const estimatedCost = await this.getSimplifiedCostEstimation(
@@ -628,7 +600,6 @@ export class MeteoraPositionService {
         }
       }
 
-      console.log('Adjusted range for one-sided position:', { minBinId, maxBinId, useTokenX });
 
       const createPositionTx = await typedPool.initializePositionAndAddLiquidityByStrategy({
         positionPubKey: newPosition.publicKey,
@@ -707,7 +678,6 @@ export class MeteoraPositionService {
     useAutoFill: boolean = true
   ): Promise<Transaction | Transaction[]> {
     try {
-      console.log(`Adding liquidity using smart bin range: ${minBinId} to ${maxBinId}`);
       
       const pool = await this.initializePool(params.poolAddress);
       const typedPool = pool as unknown as DLMMPool;
